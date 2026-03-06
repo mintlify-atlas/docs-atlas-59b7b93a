@@ -1,0 +1,130 @@
+{
+  "projectType": "api-service",
+  "projectName": "Timepoint Clockchain",
+  "projectDescription": "Spatiotemporal graph index and autonomous content orchestrator for temporal AI agents",
+  "theme": "aspen",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/graph-architecture",
+              "concepts/canonical-urls",
+              "concepts/content-layers",
+              "concepts/edge-types"
+            ]
+          },
+          {
+            "group": "Autonomous Workers",
+            "pages": [
+              "workers/overview",
+              "workers/renderer",
+              "workers/expander",
+              "workers/judge",
+              "workers/daily"
+            ]
+          },
+          {
+            "group": "Setup & Configuration",
+            "pages": [
+              "setup/installation",
+              "setup/database",
+              "setup/environment",
+              "setup/deployment"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "integration/tdf-format",
+              "integration/timepoint-suite"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api/overview", "api/authentication"]
+          },
+          {
+            "group": "Moments",
+            "pages": [
+              "api/moments/get-moment",
+              "api/moments/browse",
+              "api/moments/today",
+              "api/moments/random",
+              "api/moments/search"
+            ]
+          },
+          {
+            "group": "Graph",
+            "pages": [
+              "api/graph/neighbors",
+              "api/graph/stats"
+            ]
+          },
+          {
+            "group": "Generation",
+            "pages": [
+              "api/generation/generate",
+              "api/generation/get-job",
+              "api/generation/publish",
+              "api/generation/bulk-generate",
+              "api/generation/index",
+              "api/generation/expand-once"
+            ]
+          },
+          {
+            "group": "Ingestion",
+            "pages": [
+              "api/ingestion/ingest-tdf",
+              "api/ingestion/ingest-subgraph"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "PostgreSQL-backed directed graph of historical moments",
+    "Canonical spatiotemporal URL addressing system",
+    "Autonomous graph expansion via LLM-driven workers",
+    "TDF (Timepoint Data Format) interoperability",
+    "Typed causal edges with auto-linking",
+    "RESTful API for browse, search, and discovery",
+    "Integration with Flash scene renderer",
+    "Content moderation and quality control"
+  ],
+  "publicApiSurface": [
+    "GET /health",
+    "GET /api/v1/browse",
+    "GET /api/v1/browse/{path}",
+    "GET /api/v1/moments/{path}",
+    "GET /api/v1/today",
+    "GET /api/v1/random",
+    "GET /api/v1/search",
+    "GET /api/v1/graph/neighbors/{path}",
+    "GET /api/v1/stats",
+    "POST /api/v1/generate",
+    "GET /api/v1/jobs/{job_id}",
+    "POST /api/v1/moments/{path}/publish",
+    "POST /api/v1/bulk-generate",
+    "POST /api/v1/index",
+    "POST /api/v1/expand-once",
+    "POST /api/v1/ingest/tdf",
+    "POST /api/v1/ingest/subgraph"
+  ]
+}
