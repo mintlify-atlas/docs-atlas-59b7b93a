@@ -1,0 +1,245 @@
+---
+title: "Bulk Generate"
+api: "POST /api/bulk-generate"
+description: "Generate multiple historical moments in a single request (admin only)"
+---
+
+## Overview
+
+The bulk generate endpoint allows administrators to create multiple generation jobs simultaneously. Each query is processed as an independent background job, enabling efficient batch imports of historical events.
+
+<Warning>
+  **Admin Access Required**: This endpoint requires a valid `ADMIN_KEY` in addition to the service API key. It is intended for system administrators and bulk data operations only.
+</Warning>
+
+## Authentication
+
+Requires both:
+1. `SERVICE_API_KEY` header for basic authentication
+2. `X-Admin-Key` header with the admin key
+
+```bash
+X-Service-Key: your-service-api-key
+X-Admin-Key: your-admin-key
+```
+
+## Request Body
+
+<ParamField path="queries" type="array" required>
+  Array of generation requests. Each item has the same structure as the [Generate](/api/generation/generate) endpoint.
+  
+  **Array item fields:**
+  - `query` (string, required) - Natural language event description
+  - `preset` (string, default: "default") - Flash API preset
+  - `visibility` (string, default: "private") - Moment visibility level
+</ParamField>
+
+## Response
+
+Returns an array of job responses, one for each query in the request. Each item follows the standard [JobResponse](/api/generation/get-job) schema.
+
+<ResponseField name="[].job_id" type="string">
+  Unique identifier for this generation job.
+</ResponseField>
+
+<ResponseField name="[].status" type="string">
+  Initial status (will be `pending` for all jobs).
+</ResponseField>
+
+<ResponseField name="[].created_at" type="string">
+  ISO 8601 timestamp when the job was created.
+</ResponseField>
+
+<ResponseField name="[].path" type="string | null">
+  Will be `null` initially. Check job status to get the path once completed.
+</ResponseField>
+
+<ResponseField name="[].error" type="string | null">
+  Will be `null` initially.
+</ResponseField>
+
+<ResponseField name="[].completed_at" type="string | null">
+  Will be `null` initially.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.clockchain.io/api/bulk-generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-service-api-key" \
+  -H "X-Admin-Key: your-admin-key" \
+  -d '{
+    "queries": [
+      {
+        "query": "First powered flight December 17 1903 Kitty Hawk",
+        "preset": "detailed",
+        "visibility": "public"
+      },
+      {
+        "query": "Apollo 11 moon landing July 20 1969",
+        "preset": "balanced",
+        "visibility": "public"
+      },
+      {
+        "query": "Fall of the Berlin Wall November 9 1989",
+        "preset": "balanced",
+        "visibility": "private"
+      }
+    ]
+  }'
+```
+
+## Example Response
+
+```json
+[
+  {
+    "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+    "status": "pending",
+    "path": null,
+    "error": null,
+    "created_at": "2026-03-06T14:32:18.123456Z",
+    "completed_at": null
+  },
+  {
+    "job_id": "b5e9c8d3-6a2c-4f8e-9d3f-2b4d6c8e0a1b",
+    "status": "pending",
+    "path": null,
+    "error": null,
+    "created_at": "2026-03-06T14:32:18.234567Z",
+    "completed_at": null
+  },
+  {
+    "job_id": "c7f0d9e4-8b3d-5a9f-0e4g-3c5e7d9f1b2c",
+    "status": "pending",
+    "path": null,
+    "error": null,
+    "created_at": "2026-03-06T14:32:18.345678Z",
+    "completed_at": null
+  }
+]
+```
+
+## Preset Options
+
+The `preset` parameter controls how the Flash Timepoint API generates each moment:
+
+<ParamField path="preset" type="string">
+  **Available presets:**
+  - `default` - Standard generation with balanced speed/quality
+  - `balanced` - Optimized for production use (recommended)
+  - `detailed` - Maximum detail, slower processing
+  - Custom presets as configured in your Flash API account
+</ParamField>
+
+## Visibility Options
+
+<ParamField path="visibility" type="string">
+  **Available options:**
+  - `private` - Only visible to authorized users (default)
+  - `public` - Immediately visible to all users
+  - `unlisted` - Accessible via direct link only
+</ParamField>
+
+<Note>
+  For bulk imports, consider starting with `private` visibility. Review generated content, then use the [Publish](/api/generation/publish) endpoint to selectively make moments public.
+</Note>
+
+## Monitoring Bulk Jobs
+
+After submitting bulk requests, monitor each job individually:
+
+```bash
+# Check first job
+curl -X GET https://api.clockchain.io/api/jobs/a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f \
+  -H "X-Service-Key: your-service-api-key"
+
+# Check second job  
+curl -X GET https://api.clockchain.io/api/jobs/b5e9c8d3-6a2c-4f8e-9d3f-2b4d6c8e0a1b \
+  -H "X-Service-Key: your-service-api-key"
+```
+
+## Best Practices
+
+### Batch Size
+- Limit bulk requests to 10-50 queries per call
+- For large datasets, split into multiple bulk requests
+- Monitor system load and adjust batch sizes accordingly
+
+### Error Handling
+- Individual job failures don't affect other jobs in the batch
+- Check each job's status independently
+- Implement retry logic for failed jobs
+
+### Rate Limiting
+- Bulk generation is subject to Flash API rate limits
+- Jobs are processed sequentially to avoid overwhelming the Flash API
+- Consider spacing multiple bulk requests with delays
+
+<Warning>
+  **Resource Usage**: Each query consumes Flash API credits and processing time. Large bulk operations may take several minutes to complete. Monitor costs and quotas accordingly.
+</Warning>
+
+## Use Cases
+
+### Historical Dataset Import
+```bash
+# Import key events from a specific era
+curl -X POST https://api.clockchain.io/api/bulk-generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-key" \
+  -H "X-Admin-Key: your-admin-key" \
+  -d '{
+    "queries": [
+      {"query": "Battle of Hastings October 14 1066", "preset": "detailed"},
+      {"query": "Magna Carta June 15 1215", "preset": "detailed"},
+      {"query": "Gutenberg Bible published 1455", "preset": "detailed"}
+    ]
+  }'
+```
+
+### Event Series Generation
+```bash
+# Generate related events in a timeline
+curl -X POST https://api.clockchain.io/api/bulk-generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-key" \
+  -H "X-Admin-Key: your-admin-key" \
+  -d '{
+    "queries": [
+      {"query": "World War II begins September 1 1939"},
+      {"query": "Pearl Harbor attack December 7 1941"},
+      {"query": "D-Day invasion June 6 1944"},
+      {"query": "VE Day May 8 1945"},
+      {"query": "VJ Day August 15 1945"}
+    ]
+  }'
+```
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 403 | Missing or invalid ADMIN_KEY |
+| 401 | Missing or invalid SERVICE_API_KEY |
+| 400 | Invalid request body or empty queries array |
+| 503 | Job manager not available |
+
+## Admin Key Configuration
+
+The `ADMIN_KEY` must be set in your environment configuration:
+
+```bash
+ADMIN_KEY=your-secure-admin-key-here
+```
+
+<Warning>
+  **Security**: Never expose your admin key in client-side code or public repositories. Use environment variables and restrict access to authorized administrators only.
+</Warning>
+
+## Related Endpoints
+
+- [Generate](/api/generation/generate) - Single moment generation
+- [Get Job](/api/generation/get-job) - Check individual job status
+- [Publish](/api/generation/publish) - Update moment visibility

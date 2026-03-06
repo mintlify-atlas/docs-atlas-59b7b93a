@@ -1,0 +1,241 @@
+---
+title: "Judge Worker"
+description: "Content moderation for historical query screening"
+---
+
+## Overview
+
+The **Content Judge** is a safety layer that screens user queries before scene generation. It uses an LLM to classify queries as safe, sensitive, or harmful, helping maintain educational standards while allowing historically significant but mature content.
+
+<Note>
+The Judge is always available but requires an `OPENROUTER_API_KEY` to function. Queries are blocked if the Judge is unavailable.
+</Note>
+
+## ContentJudge Class
+
+```python
+class ContentJudge:
+    def __init__(self, api_key: str, model: str = "google/gemini-2.0-flash-001"):
+        self.api_key = api_key
+        self.model = model
+```
+
+### Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `api_key` | Required | OpenRouter API key |
+| `model` | `google/gemini-2.0-flash-001` | LLM model for screening |
+
+### Environment Variables
+
+```bash
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=google/gemini-2.0-flash-001  # Optional
+```
+
+## Screening Queries
+
+The primary method is `screen()`, which returns a verdict:
+
+```python
+async def screen(self, query: str) -> str:
+    prompt = JUDGE_PROMPT.format(query=query)
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    
+    text = data["choices"][0]["message"]["content"].strip()
+    # Parse JSON...
+    result = json.loads(text)
+    verdict = result.get("verdict", "reject")
+    
+    if verdict in ("approve", "sensitive"):
+        return verdict
+    return "reject"
+```
+
+### Return Values
+
+| Verdict | Meaning | Action |
+|---------|---------|--------|
+| `"approve"` | Safe historical topic | Allow generation |
+| `"sensitive"` | Historically significant but mature | Allow with disclaimer |
+| `"reject"` | Harmful, hateful, or not historical | Block generation |
+
+## Moderation Prompt
+
+The Judge uses a carefully designed prompt:
+
+```python
+JUDGE_PROMPT = """You are a content moderation system for a historical education platform.
+
+Evaluate this query for a historical scene generation:
+"{query}"
+
+Classify as ONE of:
+- "approve" — innocuous historical topic, safe to generate
+- "sensitive" — involves violence, controversy, or mature themes but is historically significant and educational; approve with a disclaimer
+- "reject" — harmful, hateful, exploitative, or not a genuine historical query
+
+Return ONLY a JSON object: {{"verdict": "approve"|"sensitive"|"reject", "reason": "brief explanation"}}"""
+```
+
+### Design Principles
+
+1. **Educational first**: Prioritize historical significance over comfort
+2. **Context-aware**: Distinguish between educational and exploitative content
+3. **Transparent**: Always provide a reason for the verdict
+
+## Example Classifications
+
+### Approve
+
+```python
+judge = ContentJudge(api_key="...")
+
+verdict = await judge.screen("Moon landing 1969")
+# Returns: "approve"
+# Reason: "Innocuous historical event"
+```
+
+### Sensitive
+
+```python
+verdict = await judge.screen("Battle of Stalingrad 1942")
+# Returns: "sensitive"
+# Reason: "Significant WWII battle but involves graphic violence"
+```
+
+### Reject
+
+```python
+verdict = await judge.screen("Make a video game level")
+# Returns: "reject"
+# Reason: "Not a historical query"
+```
+
+## Integration with JobManager
+
+The Judge is typically invoked at the start of scene generation:
+
+```python
+judge = ContentJudge(settings.OPENROUTER_API_KEY)
+
+# Before generating a scene
+verdict = await judge.screen(user_query)
+
+if verdict == "reject":
+    raise ValueError("Query rejected by content moderation")
+elif verdict == "sensitive":
+    # Add disclaimer to response
+    disclaimer = "This historical event involves mature themes."
+# Proceed with generation...
+```
+
+## Response Parsing
+
+The Judge handles markdown-wrapped JSON:
+
+```python
+text = data["choices"][0]["message"]["content"].strip()
+if text.startswith("```"):
+    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+result = json.loads(text)
+verdict = result.get("verdict", "reject")
+```
+
+<Warning>
+If JSON parsing fails or the LLM returns an invalid verdict, the Judge defaults to `"reject"` for safety.
+</Warning>
+
+## Logging
+
+All screening decisions are logged:
+
+```python
+logger = logging.getLogger("clockchain.judge")
+logger.info(
+    "Judge verdict for %r: %s (%s)", 
+    query, 
+    verdict, 
+    result.get("reason", "")
+)
+```
+
+Example log output:
+
+```
+2026-03-06 10:45:12 INFO clockchain.judge Judge verdict for 'D-Day invasion 1944': sensitive (Involves wartime violence but historically significant)
+```
+
+## Error Handling
+
+```python
+try:
+    verdict = await judge.screen(query)
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 429:
+        # Rate limited - queue for retry
+        verdict = "reject"
+    else:
+        # Other API error - fail safe
+        verdict = "reject"
+except json.JSONDecodeError:
+    # LLM returned invalid JSON
+    logger.error("Failed to parse judge response")
+    verdict = "reject"
+except httpx.TimeoutException:
+    # 60-second timeout exceeded
+    verdict = "reject"
+```
+
+### Fail-Safe Behavior
+
+The Judge always defaults to **rejection** on errors:
+- API failures
+- Timeout
+- Invalid JSON
+- Unknown verdict values
+
+This ensures the system errs on the side of caution.
+
+## Performance
+
+- **Timeout**: 60 seconds per query
+- **Model**: Gemini 2.0 Flash (fast inference)
+- **Cost**: ~$0.0001 per query (1000 requests = $0.10)
+
+<Note>
+Screening adds ~1-2 seconds of latency to each generation request. This is acceptable for the safety benefits.
+</Note>
+
+## Customization
+
+To use a different model or adjust the prompt:
+
+```python
+judge = ContentJudge(
+    api_key="sk-or-v1-...",
+    model="anthropic/claude-3-haiku"  # Alternative model
+)
+```
+
+For stricter moderation, modify `JUDGE_PROMPT` in `app/workers/judge.py` to adjust classification criteria.

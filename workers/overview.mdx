@@ -1,0 +1,117 @@
+---
+title: "Workers Overview"
+description: "Background workers that power the Timepoint Clockchain"
+---
+
+## What Are Workers?
+
+Timepoint Clockchain uses several background workers to automate graph expansion, content moderation, and daily operations. Each worker runs as an async task managed by FastAPI's lifespan context.
+
+<CardGroup cols={2}>
+  <Card title="Renderer" icon="paintbrush" href="/workers/renderer">
+    Communicates with Flash service to generate historical scene visualizations
+  </Card>
+  <Card title="Expander" icon="network-wired" href="/workers/expander">
+    Automatically discovers and adds related historical events to the graph
+  </Card>
+  <Card title="Judge" icon="gavel" href="/workers/judge">
+    Screens user queries for content safety and appropriateness
+  </Card>
+  <Card title="Daily" icon="calendar-day" href="/workers/daily">
+    Generates scenes for "Today in History" events every 24 hours
+  </Card>
+</CardGroup>
+
+## Worker Lifecycle
+
+All workers are initialized during application startup in `app/main.py` within the `lifespan` context manager:
+
+```python
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    settings = get_settings()
+    
+    # Initialize database and graph manager
+    pool = await create_pool(settings.DATABASE_URL)
+    gm = GraphManager(pool)
+    await gm.load()
+    
+    # Start workers based on feature flags
+    expander_task = None
+    if settings.EXPANSION_ENABLED:
+        expander = GraphExpander(gm, settings.OPENROUTER_API_KEY)
+        expander_task = asyncio.create_task(expander.start())
+    
+    daily_task = None
+    if settings.DAILY_CRON_ENABLED:
+        daily = DailyWorker(gm, job_manager)
+        daily_task = asyncio.create_task(daily.start())
+    
+    yield
+    
+    # Graceful shutdown
+    if expander_task:
+        expander_task.cancel()
+    if daily_task:
+        daily_task.cancel()
+```
+
+## Feature Flags
+
+Workers are controlled by environment configuration:
+
+| Variable | Worker | Default | Description |
+|----------|--------|---------|-------------|
+| `EXPANSION_ENABLED` | Expander | `false` | Enable automatic graph expansion |
+| `DAILY_CRON_ENABLED` | Daily | `false` | Enable daily scene generation |
+| `OPENROUTER_API_KEY` | Expander, Judge | Required | API key for LLM calls |
+| `FLASH_URL` | Renderer | Required | Flash service endpoint |
+| `FLASH_SERVICE_KEY` | Renderer | Required | Service authentication key |
+
+<Note>
+The Renderer and Judge workers are always available but are invoked on-demand rather than running continuously.
+</Note>
+
+## Error Handling
+
+All long-running workers implement robust error handling:
+
+```python
+async def start(self):
+    logger.info("Worker starting")
+    while True:
+        try:
+            await self._do_work()
+        except asyncio.CancelledError:
+            logger.info("Worker cancelled")
+            break
+        except Exception as e:
+            logger.error("Worker error: %s", e)
+        await asyncio.sleep(self.interval)
+```
+
+Key patterns:
+- **Graceful cancellation**: Workers catch `asyncio.CancelledError` during shutdown
+- **Error recovery**: Exceptions are logged but don't crash the worker
+- **Interval-based execution**: Workers sleep between cycles to avoid resource exhaustion
+
+## Monitoring
+
+Worker status can be monitored through:
+
+1. **Application logs**: Each worker logs its operations at INFO level
+2. **Health endpoint**: `/health` returns graph statistics
+3. **Graph metrics**: Node and edge counts indicate expansion activity
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+{
+  "status": "healthy",
+  "service": "timepoint-clockchain",
+  "nodes": 1547,
+  "edges": 3821
+}
+```

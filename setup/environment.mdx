@@ -1,0 +1,203 @@
+---
+title: Environment Variables
+description: Configure Clockchain with environment variables
+---
+
+Clockchain uses environment variables for configuration. Create a `.env` file in the project root or set variables in your deployment environment.
+
+## Required Variables
+
+These variables must be set for Clockchain to function:
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection URL
+  
+  ```bash
+  DATABASE_URL=postgresql://localhost:5432/clockchain
+  ```
+</ParamField>
+
+<ParamField path="SERVICE_API_KEY" type="string" required>
+  Shared secret for inbound service authentication. All API endpoints (except `/health` and `/`) require the `X-Service-Key` header with this value.
+  
+  ```bash
+  SERVICE_API_KEY=your-secret-key-here
+  ```
+</ParamField>
+
+<ParamField path="FLASH_SERVICE_KEY" type="string" required>
+  Authentication key for making requests to the Flash service API.
+  
+  ```bash
+  FLASH_SERVICE_KEY=flash-api-key
+  ```
+</ParamField>
+
+## Flash Integration
+
+<ParamField path="FLASH_URL" type="string" default="http://timepoint-flash-deploy.railway.internal:8080">
+  URL of the Flash service for scene generation.
+  
+  ```bash
+  # Railway internal (default)
+  FLASH_URL=http://timepoint-flash-deploy.railway.internal:8080
+  
+  # Local development
+  FLASH_URL=http://localhost:8080
+  ```
+</ParamField>
+
+## AI Workers
+
+Configuration for autonomous graph expansion and content moderation:
+
+<ParamField path="OPENROUTER_API_KEY" type="string">
+  OpenRouter API key for LLM-powered workers (Expander and Judge).
+  
+  ```bash
+  OPENROUTER_API_KEY=sk-or-v1-...
+  ```
+</ParamField>
+
+<ParamField path="OPENROUTER_MODEL" type="string" default="google/gemini-2.0-flash-001">
+  Model to use for AI workers via OpenRouter.
+  
+  ```bash
+  OPENROUTER_MODEL=google/gemini-2.0-flash-001
+  ```
+</ParamField>
+
+<ParamField path="EXPANSION_ENABLED" type="boolean" default="false">
+  Enable the autonomous graph expansion worker. Requires `OPENROUTER_API_KEY`.
+  
+  ```bash
+  EXPANSION_ENABLED=true
+  ```
+  
+  When enabled, the Expander worker:
+  - Picks frontier nodes with low degree (< 3 edges)
+  - Generates 3-5 related events via LLM
+  - Creates causal edges and auto-links
+  - Runs every 300 seconds
+</ParamField>
+
+<ParamField path="DAILY_CRON_ENABLED" type="boolean" default="false">
+  Enable the "Today in History" daily worker.
+  
+  ```bash
+  DAILY_CRON_ENABLED=true
+  ```
+  
+  When enabled:
+  - Runs every 24 hours
+  - Finds events matching today's month/day
+  - Queues up to 5 events for Flash scene generation
+</ParamField>
+
+## Server Configuration
+
+<ParamField path="PORT" type="integer" default="8080">
+  HTTP server port.
+  
+  ```bash
+  PORT=8080
+  ```
+</ParamField>
+
+<ParamField path="ENVIRONMENT" type="string" default="development">
+  Environment name for logging and behavior.
+  
+  ```bash
+  ENVIRONMENT=production
+  ```
+</ParamField>
+
+<ParamField path="DEBUG" type="boolean" default="false">
+  Enable debug logging.
+  
+  ```bash
+  DEBUG=true
+  ```
+</ParamField>
+
+## Data and Storage
+
+<ParamField path="DATA_DIR" type="string" default="./data">
+  Directory for seed data files.
+  
+  ```bash
+  DATA_DIR=./data
+  ```
+</ParamField>
+
+## Admin Access
+
+<ParamField path="ADMIN_KEY" type="string">
+  Secret key for accessing admin endpoints like bulk generation.
+  
+  ```bash
+  ADMIN_KEY=admin-secret-key
+  ```
+</ParamField>
+
+## Example Configuration
+
+<CodeGroup>
+```bash Development
+# .env file for local development
+DATABASE_URL=postgresql://localhost:5432/clockchain
+SERVICE_API_KEY=dev-service-key
+FLASH_URL=http://localhost:8080
+FLASH_SERVICE_KEY=dev-flash-key
+DEBUG=true
+ENVIRONMENT=development
+```
+
+```bash Production
+# .env file for production
+DATABASE_URL=postgresql://user:pass@prod-db:5432/clockchain
+SERVICE_API_KEY=prod-service-key-secure
+FLASH_URL=http://timepoint-flash-deploy.railway.internal:8080
+FLASH_SERVICE_KEY=prod-flash-key
+OPENROUTER_API_KEY=sk-or-v1-...
+EXPANSION_ENABLED=true
+DAILY_CRON_ENABLED=true
+ENVIRONMENT=production
+DEBUG=false
+```
+
+```bash Docker
+# Docker environment variables
+DATABASE_URL=postgresql://postgres:password@db:5432/clockchain
+SERVICE_API_KEY=${SERVICE_API_KEY}
+FLASH_SERVICE_KEY=${FLASH_SERVICE_KEY}
+FLASH_URL=http://flash:8080
+PORT=8080
+```
+</CodeGroup>
+
+## Configuration Loading
+
+Clockchain uses Pydantic Settings to load configuration:
+
+1. Reads from `.env` file in the project root
+2. Overrides with environment variables
+3. Falls back to default values
+
+The configuration is defined in `app/core/config.py:6`:
+
+```python
+class Settings(BaseSettings):
+    SERVICE_API_KEY: str = ""
+    FLASH_URL: str = "http://timepoint-flash-deploy.railway.internal:8080"
+    FLASH_SERVICE_KEY: str = ""
+    # ... other settings
+    
+    model_config = {"env_file": ".env", "extra": "ignore"}
+```
+
+## Next Steps
+
+<Card title="Deployment" icon="rocket" href="/setup/deployment">
+  Deploy Clockchain to Railway, Docker, or local server
+</Card>

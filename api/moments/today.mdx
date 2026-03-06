@@ -1,0 +1,134 @@
+---
+title: "Today in History"
+description: "Get moments that occurred on this day in history"
+---
+
+## Endpoint
+
+```http
+GET /today
+```
+
+Retrieve all public moments that occurred on today's date (month and day) in any year. Perfect for "On This Day" features.
+
+## Authentication
+
+Requires a valid service key via the `verify_service_key` dependency.
+
+## Response
+
+<ResponseField name="month" type="integer">
+  Current month (1-12)
+</ResponseField>
+
+<ResponseField name="day" type="integer">
+  Current day of the month (1-31)
+</ResponseField>
+
+<ResponseField name="events" type="array">
+  List of moments that occurred on this date
+  
+  <Expandable title="MomentSummary Object">
+    <ResponseField name="path" type="string">
+      Unique path identifier for the moment
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Display name of the moment
+    </ResponseField>
+    
+    <ResponseField name="one_liner" type="string">
+      Brief description or summary
+    </ResponseField>
+    
+    <ResponseField name="year" type="integer">
+      Year when the moment occurred
+    </ResponseField>
+    
+    <ResponseField name="month" type="integer">
+      Month (1-12)
+    </ResponseField>
+    
+    <ResponseField name="day" type="integer">
+      Day of the month (1-31)
+    </ResponseField>
+    
+    <ResponseField name="layer" type="integer">
+      Graph layer (importance indicator)
+    </ResponseField>
+    
+    <ResponseField name="visibility" type="string">
+      Always `public` in today results
+    </ResponseField>
+    
+    <ResponseField name="source_type" type="string">
+      Source classification (e.g., `historical`, `generated`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example
+
+### Get Today's Events
+
+```bash
+curl -X GET "https://api.timepoint.io/today" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "month": 7,
+  "day": 20,
+  "events": [
+    {
+      "path": "/1969/july/apollo-11-moon-landing",
+      "name": "Apollo 11 Moon Landing",
+      "one_liner": "First humans land on the Moon",
+      "year": 1969,
+      "month": 7,
+      "day": 20,
+      "layer": 3,
+      "visibility": "public",
+      "source_type": "historical"
+    },
+    {
+      "path": "/1976/july/viking-1-mars-landing",
+      "name": "Viking 1 Mars Landing",
+      "one_liner": "First successful Mars landing by Viking 1",
+      "year": 1976,
+      "month": 7,
+      "day": 20,
+      "layer": 2,
+      "visibility": "public",
+      "source_type": "historical"
+    },
+    {
+      "path": "/1944/july/hitler-assassination-attempt",
+      "name": "Operation Valkyrie",
+      "one_liner": "Failed assassination attempt on Adolf Hitler",
+      "year": 1944,
+      "month": 7,
+      "day": 20,
+      "layer": 2,
+      "visibility": "public",
+      "source_type": "historical"
+    }
+  ]
+}
+```
+
+## Behavior Notes
+
+- Uses the **current UTC date** to determine month and day
+- Only returns **public** moments (visibility = `public`)
+- Matches moments by both month name (e.g., `july`) and month number (e.g., `7`)
+- Results include moments from all years in history
+- Events are not sorted by default; consider sorting by year on the client side
+
+## Use Cases
+
+- **"On This Day" widgets**: Display historical events that happened today
+- **Daily notifications**: Send users interesting moments from history
+- **Educational content**: Create daily history lessons
+- **Social media**: Auto-generate posts about historical anniversaries

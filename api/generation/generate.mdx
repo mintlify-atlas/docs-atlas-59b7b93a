@@ -1,0 +1,137 @@
+---
+title: "Generate Moment"
+api: "POST /api/generate"
+description: "Create a new historical moment from a text query using Flash Timepoint API"
+---
+
+## Overview
+
+The `/generate` endpoint accepts a natural language query describing a historical event and returns a job ID. The system uses the Flash Timepoint API to generate structured moment data, which is then indexed into the Clockchain graph.
+
+## Authentication
+
+Requires `SERVICE_API_KEY` header for authentication.
+
+```bash
+X-Service-Key: your-service-api-key
+```
+
+## Request Body
+
+<ParamField path="query" type="string" required>
+  Natural language description of the historical event. Can include date and location hints.
+  
+  Examples:
+  - "Caesar's assassination March 15 44 BC Rome"
+  - "Moon landing 1969"
+  - "Fall of the Berlin Wall"
+</ParamField>
+
+<ParamField path="preset" type="string" default="default">
+  Flash API preset controlling generation quality and detail level.
+  
+  Available presets:
+  - `default` - Standard generation
+  - `balanced` - Balanced quality and speed
+  - `detailed` - Maximum detail and accuracy
+</ParamField>
+
+<ParamField path="visibility" type="string" default="private">
+  Visibility level for the generated moment.
+  
+  Options:
+  - `private` - Only visible to creator
+  - `public` - Visible to all users
+</ParamField>
+
+## Response
+
+<ResponseField name="job_id" type="string">
+  Unique identifier for the generation job. Use this with the [Get Job](/api/generation/get-job) endpoint to check status.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current job status. Will be `pending` immediately after creation.
+  
+  Possible values:
+  - `pending` - Job created, waiting to process
+  - `processing` - Currently generating moment
+  - `completed` - Successfully generated and indexed
+  - `failed` - Generation failed (check `error` field)
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the job was created.
+</ResponseField>
+
+<ResponseField name="path" type="string | null">
+  Graph path where the moment will be indexed. Only available when status is `completed`.
+  
+  Format: `/YYYY/month/DD/HHMM/country/region/city/event-slug`
+</ResponseField>
+
+<ResponseField name="error" type="string | null">
+  Error message if status is `failed`. Otherwise `null`.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string | null">
+  ISO 8601 timestamp when job finished (completed or failed). `null` while processing.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.clockchain.io/api/generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-service-api-key" \
+  -d '{
+    "query": "Signing of the Declaration of Independence July 4 1776",
+    "preset": "balanced",
+    "visibility": "private"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+  "status": "pending",
+  "path": null,
+  "error": null,
+  "created_at": "2026-03-06T14:32:18.123456Z",
+  "completed_at": null
+}
+```
+
+## Content Moderation
+
+<Note>
+  If `OPENROUTER_API_KEY` is configured, queries are screened by a content judge before processing. Inappropriate queries will be rejected with a 400 error.
+</Note>
+
+## Job Processing
+
+Generation jobs are processed asynchronously in the background. To check job status and retrieve the generated moment path:
+
+1. Store the `job_id` from the response
+2. Poll the [Get Job](/api/generation/get-job) endpoint
+3. When `status` is `completed`, use the `path` to fetch moment details
+
+<Warning>
+  Generation can take 5-30 seconds depending on query complexity and the Flash API preset used. Implement appropriate polling intervals (recommended: 2-5 seconds).
+</Warning>
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 400 | Query rejected by content judge |
+| 401 | Missing or invalid SERVICE_API_KEY |
+| 503 | Job manager not available |
+
+## Related Endpoints
+
+- [Get Job](/api/generation/get-job) - Check job status
+- [Publish Moment](/api/generation/publish) - Change moment visibility
+- [Bulk Generate](/api/generation/bulk-generate) - Generate multiple moments

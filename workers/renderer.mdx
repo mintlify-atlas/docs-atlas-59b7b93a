@@ -1,0 +1,188 @@
+---
+title: "Renderer Worker"
+description: "Flash service client for generating historical scene visualizations"
+---
+
+## Overview
+
+The Renderer worker is a client wrapper around the **Flash** service, which generates 3D visualizations of historical events. Unlike the Expander and Daily workers, the Renderer doesn't run continuously—it's invoked on-demand when users request scene generation.
+
+## FlashClient Class
+
+The `FlashClient` manages communication with the Flash service:
+
+```python
+class FlashClient:
+    def __init__(self, base_url: str, service_key: str):
+        self.base_url = base_url.rstrip("/")
+        self.service_key = service_key
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={"X-Service-Key": self.service_key},
+            timeout=300.0,
+        )
+```
+
+### Configuration
+
+The client requires two environment variables:
+
+| Variable | Purpose | Example |
+|----------|---------|----------|
+| `FLASH_URL` | Base URL of Flash service | `https://flash.timepoint.ai` |
+| `FLASH_SERVICE_KEY` | Authentication key | `sk-...` |
+
+<Warning>
+The Flash service has a **5-minute timeout** (300 seconds) for generation requests. Ensure your infrastructure can handle long-running connections.
+</Warning>
+
+## Generating Scenes
+
+The primary method for scene generation is `generate_sync`:
+
+```python
+async def generate_sync(
+    self,
+    query: str,
+    preset: str = "balanced",
+    request_context: dict | None = None,
+) -> dict:
+    logger.info("Flash generate: query=%r preset=%s", query, preset)
+    body: dict = {"query": query, "preset": preset}
+    if request_context:
+        body["request_context"] = request_context
+    resp = await self._client.post(
+        "/api/v1/timepoints/generate/sync",
+        json=body,
+    )
+    resp.raise_for_status()
+    return resp.json()
+```
+
+### Parameters
+
+- **query**: Natural language description of the historical event (e.g., "Battle of Hastings 1066")
+- **preset**: Quality/speed tradeoff setting:
+  - `"fast"`: Quick generation, lower detail
+  - `"balanced"`: Default, good quality and reasonable speed
+  - `"quality"`: Highest detail, slower generation
+- **request_context**: Optional metadata to pass through to Flash
+
+### Response
+
+The Flash service returns a JSON object containing:
+
+```json
+{
+  "timepoint_id": "tp_abc123",
+  "scene_url": "https://cdn.timepoint.ai/scenes/abc123.glb",
+  "thumbnail_url": "https://cdn.timepoint.ai/thumbnails/abc123.jpg",
+  "status": "completed",
+  "metadata": {
+    "generation_time_ms": 45000,
+    "preset": "balanced"
+  }
+}
+```
+
+## Retrieving Timepoints
+
+To fetch a previously generated timepoint:
+
+```python
+async def get_timepoint(self, timepoint_id: str) -> dict:
+    resp = await self._client.get(f"/api/v1/timepoints/{timepoint_id}")
+    resp.raise_for_status()
+    return resp.json()
+```
+
+### Example Usage
+
+```python
+flash_client = FlashClient(
+    base_url="https://flash.timepoint.ai",
+    service_key="sk-abc123"
+)
+
+# Generate a new scene
+result = await flash_client.generate_sync(
+    query="Signing of the Declaration of Independence 1776",
+    preset="balanced"
+)
+timepoint_id = result["timepoint_id"]
+
+# Later, retrieve the timepoint
+timepoint = await flash_client.get_timepoint(timepoint_id)
+print(timepoint["scene_url"])
+```
+
+## Integration with JobManager
+
+The Renderer is typically used through the `JobManager`, which coordinates the full generation workflow:
+
+```python
+flash_client = FlashClient(settings.FLASH_URL, settings.FLASH_SERVICE_KEY)
+job_manager = JobManager(graph_manager=gm, flash_client=flash_client)
+
+job = job_manager.create_job(
+    query="Moon landing 1969",
+    preset="balanced",
+    visibility="public"
+)
+await job_manager.process_job(job)
+```
+
+The JobManager:
+1. Screens the query with the Judge worker
+2. Calls the Renderer to generate the scene
+3. Updates the graph node with the `flash_timepoint_id`
+4. Handles errors and retries
+
+## Error Handling
+
+```python
+try:
+    result = await flash_client.generate_sync(query="...", preset="balanced")
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 429:
+        # Rate limited - retry with backoff
+        pass
+    elif e.response.status_code == 400:
+        # Invalid query - check request parameters
+        pass
+    else:
+        # Other error
+        pass
+except httpx.TimeoutException:
+    # Generation took longer than 5 minutes
+    pass
+```
+
+<Note>
+Always call `await flash_client.close()` when shutting down to properly close the HTTP connection pool.
+</Note>
+
+## Authentication
+
+The Flash service uses header-based authentication:
+
+```python
+headers={"X-Service-Key": self.service_key}
+```
+
+Ensure your `FLASH_SERVICE_KEY` is kept secure and never committed to version control.
+
+## Logging
+
+The Renderer logs all generation requests:
+
+```python
+logger = logging.getLogger("clockchain.renderer")
+logger.info("Flash generate: query=%r preset=%s", query, preset)
+```
+
+Example log output:
+
+```
+2026-03-06 10:15:23 INFO clockchain.renderer Flash generate: query='Battle of Waterloo 1815' preset=balanced
+```

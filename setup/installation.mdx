@@ -1,0 +1,78 @@
+---
+title: Installation
+description: Install Timepoint Clockchain using pip or uv
+---
+
+Timepoint Clockchain requires Python 3.11 or higher and PostgreSQL 16+.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Python 3.11+">
+    Ensure you have Python 3.11 or higher installed:
+    ```bash
+    python --version
+    ```
+  </Step>
+
+  <Step title="PostgreSQL 16+">
+    Clockchain requires a PostgreSQL database. See the [Database Setup](/setup/database) guide for installation instructions.
+  </Step>
+</Steps>
+
+## Installation Methods
+
+<CodeGroup>
+```bash pip
+# Install from source with pip
+pip install -e ".[dev]"
+```
+
+```bash uv
+# Install with uv (recommended)
+uv sync
+```
+</CodeGroup>
+
+## Dependencies
+
+The core dependencies installed automatically:
+
+- **FastAPI** (>=0.115.0) - Web framework
+- **Uvicorn** (>=0.30.0) - ASGI server
+- **Pydantic** (>=2.9.0) - Data validation
+- **Pydantic Settings** (>=2.6.0) - Configuration management
+- **httpx** (>=0.28.0) - HTTP client for Flash integration
+- **asyncpg** (>=0.29.0) - PostgreSQL driver
+- **timepoint-tdf** - TDF format support (from GitHub)
+
+## Development Dependencies
+
+For testing and development:
+
+```bash
+pip install -e ".[dev]"
+```
+
+This includes:
+- pytest
+- pytest-asyncio
+- httpx (for testing)
+
+## Verify Installation
+
+Confirm the installation by checking the package:
+
+```bash
+python -c "import app.main; print('Clockchain installed successfully')"
+```
+
+## Next Steps
+
+<Card title="Database Setup" icon="database" href="/setup/database">
+  Configure PostgreSQL and initialize the schema
+</Card>
+
+<Card title="Environment Configuration" icon="gear" href="/setup/environment">
+  Set required environment variables
+</Card>

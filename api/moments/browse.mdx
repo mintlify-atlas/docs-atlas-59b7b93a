@@ -1,0 +1,159 @@
+---
+title: "Browse Moments"
+description: "Navigate the moment hierarchy and discover content by path prefix"
+---
+
+## Endpoint
+
+```http
+GET /browse
+GET /browse/{path}
+```
+
+Browse the moment hierarchy to discover public moments organized by path segments. Returns aggregated counts of moments under each path segment.
+
+## Path Parameters
+
+<ParamField path="path" type="string" optional>
+  The path prefix to browse under (e.g., `1969`, `1969/july`). Omit to browse from the root.
+</ParamField>
+
+## Authentication
+
+Requires a valid service key via the `verify_service_key` dependency.
+
+## Response
+
+<ResponseField name="prefix" type="string">
+  The browsed path prefix (e.g., `/1969` or `/` for root)
+</ResponseField>
+
+<ResponseField name="items" type="array">
+  List of available path segments under this prefix
+  
+  <Expandable title="BrowseItem Object">
+    <ResponseField name="segment" type="string">
+      The next path segment (e.g., `1969`, `july`, `apollo-11-moon-landing`)
+    </ResponseField>
+    
+    <ResponseField name="count" type="integer">
+      Number of moments under this segment
+    </ResponseField>
+    
+    <ResponseField name="label" type="string">
+      Human-readable label (currently same as segment)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Browse Root
+
+```bash
+curl -X GET "https://api.timepoint.io/browse" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "prefix": "/",
+  "items": [
+    {
+      "segment": "1960s",
+      "count": 142,
+      "label": "1960s"
+    },
+    {
+      "segment": "1969",
+      "count": 38,
+      "label": "1969"
+    },
+    {
+      "segment": "1970s",
+      "count": 95,
+      "label": "1970s"
+    },
+    {
+      "segment": "ancient",
+      "count": 203,
+      "label": "ancient"
+    }
+  ]
+}
+```
+
+### Browse Specific Year
+
+```bash
+curl -X GET "https://api.timepoint.io/browse/1969" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "prefix": "/1969",
+  "items": [
+    {
+      "segment": "january",
+      "count": 5,
+      "label": "january"
+    },
+    {
+      "segment": "july",
+      "count": 12,
+      "label": "july"
+    },
+    {
+      "segment": "august",
+      "count": 8,
+      "label": "august"
+    },
+    {
+      "segment": "december",
+      "count": 4,
+      "label": "december"
+    }
+  ]
+}
+```
+
+### Browse Month
+
+```bash
+curl -X GET "https://api.timepoint.io/browse/1969/july" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "prefix": "/1969/july",
+  "items": [
+    {
+      "segment": "apollo-11-moon-landing",
+      "count": 1,
+      "label": "apollo-11-moon-landing"
+    },
+    {
+      "segment": "chappaquiddick-incident",
+      "count": 1,
+      "label": "chappaquiddick-incident"
+    }
+  ]
+}
+```
+
+## Behavior Notes
+
+- Only **public** moments are included in browse results
+- Results are sorted alphabetically by segment name
+- The `count` field shows the total number of moments under that segment, including all nested paths
+- Empty segments (with no public moments) are not returned
+- Leading and trailing slashes in the path are automatically normalized
+
+## Use Cases
+
+- **Navigation UI**: Build hierarchical navigation menus
+- **Discovery**: Let users explore moments by time period or category
+- **Analytics**: Understand content distribution across the graph
+- **Autocomplete**: Suggest valid path segments for search interfaces

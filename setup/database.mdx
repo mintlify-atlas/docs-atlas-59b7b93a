@@ -1,0 +1,190 @@
+---
+title: Database Setup
+description: Configure PostgreSQL and initialize the Clockchain schema
+---
+
+Clockchain stores the temporal causal graph in PostgreSQL using two core tables: `nodes` and `edges`.
+
+## PostgreSQL Installation
+
+<CodeGroup>
+```bash macOS
+# Install PostgreSQL 16 with Homebrew
+brew install postgresql@16
+brew services start postgresql@16
+
+# Create the database
+creatdb clockchain
+```
+
+```bash Docker
+# Run PostgreSQL 16 in Docker
+docker run -d \
+  --name clockchain-db \
+  -p 5432:5432 \
+  -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=clockchain \
+  postgres:16
+```
+
+```bash Linux
+# Install PostgreSQL 16 on Ubuntu/Debian
+sudo apt update
+sudo apt install postgresql-16
+
+# Create the database
+sudo -u postgres createdb clockchain
+```
+</CodeGroup>
+
+## Database Schema
+
+The schema is created automatically on first startup. No manual migration is required.
+
+### Tables
+
+<Accordion title="nodes table">
+  Stores historical moments and events:
+  
+  ```sql
+  CREATE TABLE nodes (
+      id TEXT PRIMARY KEY,
+      type TEXT DEFAULT 'event',
+      name TEXT DEFAULT '',
+      year INTEGER,
+      month TEXT DEFAULT '',
+      month_num INTEGER DEFAULT 0,
+      day INTEGER DEFAULT 0,
+      time TEXT DEFAULT '',
+      country TEXT DEFAULT '',
+      region TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      slug TEXT DEFAULT '',
+      layer INTEGER DEFAULT 0,
+      visibility TEXT DEFAULT 'private',
+      created_by TEXT DEFAULT 'system',
+      tags TEXT[] DEFAULT '{}',
+      one_liner TEXT DEFAULT '',
+      figures TEXT[] DEFAULT '{}',
+      flash_timepoint_id TEXT,
+      flash_slug TEXT DEFAULT '',
+      flash_share_url TEXT DEFAULT '',
+      era TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT now(),
+      published_at TIMESTAMPTZ,
+      source_type TEXT DEFAULT 'historical',
+      confidence FLOAT,
+      source_run_id TEXT,
+      tdf_hash TEXT NOT NULL
+  );
+  ```
+</Accordion>
+
+<Accordion title="edges table">
+  Stores relationships between nodes:
+  
+  ```sql
+  CREATE TABLE edges (
+      source TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      target TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('causes','contemporaneous','same_location','thematic')),
+      weight FLOAT DEFAULT 1.0,
+      theme TEXT DEFAULT '',
+      PRIMARY KEY (source, target, type)
+  );
+  ```
+</Accordion>
+
+### Indexes
+
+Optimized indexes for common query patterns:
+
+```sql
+CREATE INDEX idx_nodes_visibility ON nodes(visibility);
+CREATE INDEX idx_nodes_month_day ON nodes(month, day);
+CREATE INDEX idx_nodes_year ON nodes(year);
+CREATE INDEX idx_nodes_location ON nodes(country, region, city);
+CREATE INDEX idx_nodes_tags ON nodes USING GIN(tags);
+CREATE INDEX idx_nodes_figures ON nodes USING GIN(figures);
+CREATE INDEX idx_edges_source ON edges(source);
+CREATE INDEX idx_edges_target ON edges(target);
+CREATE INDEX idx_nodes_source_type ON nodes(source_type);
+```
+
+### Full-Text Search
+
+If `pg_trgm` extension is available, trigram indexes are created automatically:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_nodes_name_trgm ON nodes USING GIN(name gin_trgm_ops);
+CREATE INDEX idx_nodes_one_liner_trgm ON nodes USING GIN(one_liner gin_trgm_ops);
+```
+
+## Connection Configuration
+
+Set the `DATABASE_URL` environment variable:
+
+```bash
+# Local PostgreSQL
+export DATABASE_URL="postgresql://localhost:5432/clockchain"
+
+# With credentials
+export DATABASE_URL="postgresql://user:password@localhost:5432/clockchain"
+
+# Docker container
+export DATABASE_URL="postgresql://postgres:test@localhost:5432/clockchain"
+```
+
+## Seed Data
+
+On first startup with an empty database, Clockchain automatically loads seed data from:
+
+1. `data/seeds.jsonl` (preferred - TDF format)
+2. `/app/seeds/seeds.jsonl` (Docker bundled)
+3. `data/seeds.json` (legacy format)
+4. `/app/seeds/seeds.json` (Docker bundled)
+
+The seed data includes 5 historical events:
+- Assassination of Julius Caesar (-44 BCE)
+- Trinity Test (1945)
+- Apollo 12 Lightning Launch (1969)
+- Apollo 11 Moon Landing (1969)
+- AlphaGo Move 37 (2016)
+
+## Initialization Process
+
+When the service starts:
+
+<Steps>
+  <Step title="Create Connection Pool">
+    Establishes asyncpg connection pool (2-10 connections)
+  </Step>
+
+  <Step title="Run Schema DDL">
+    Creates tables and indexes if they don't exist
+  </Step>
+
+  <Step title="Seed Database">
+    Loads seed data if the nodes table is empty
+  </Step>
+
+  <Step title="Start Services">
+    Initializes GraphManager, workers, and API server
+  </Step>
+</Steps>
+
+## Testing Database
+
+For running tests, create a separate test database:
+
+```bash
+createdb clockchain_test
+DATABASE_URL=postgresql://localhost:5432/clockchain_test pytest tests/ -v
+```
+
+## Next Steps
+
+<Card title="Environment Variables" icon="gear" href="/setup/environment">
+  Configure API keys and service settings
+</Card>

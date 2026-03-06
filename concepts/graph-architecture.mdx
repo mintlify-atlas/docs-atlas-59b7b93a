@@ -1,0 +1,295 @@
+---
+title: Graph Architecture
+description: Understanding the PostgreSQL-backed temporal causal graph structure
+---
+
+The Clockchain is a directed graph stored in PostgreSQL consisting of two core tables: `nodes` and `edges`. Each node represents a historical moment, and edges encode typed relationships between them.
+
+## Database Schema
+
+The graph is implemented using two PostgreSQL tables with foreign key constraints and type checking:
+
+### Nodes Table
+
+```sql
+CREATE TABLE IF NOT EXISTS nodes (
+    id TEXT PRIMARY KEY,
+    type TEXT DEFAULT 'event',
+    name TEXT DEFAULT '',
+    year INTEGER,
+    month TEXT DEFAULT '',
+    month_num INTEGER DEFAULT 0,
+    day INTEGER DEFAULT 0,
+    time TEXT DEFAULT '',
+    country TEXT DEFAULT '',
+    region TEXT DEFAULT '',
+    city TEXT DEFAULT '',
+    slug TEXT DEFAULT '',
+    layer INTEGER DEFAULT 0,
+    visibility TEXT DEFAULT 'private',
+    created_by TEXT DEFAULT 'system',
+    tags TEXT[] DEFAULT '{}',
+    one_liner TEXT DEFAULT '',
+    figures TEXT[] DEFAULT '{}',
+    flash_timepoint_id TEXT,
+    flash_slug TEXT DEFAULT '',
+    flash_share_url TEXT DEFAULT '',
+    era TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    published_at TIMESTAMPTZ,
+    source_type TEXT DEFAULT 'historical',
+    confidence FLOAT,
+    source_run_id TEXT,
+    tdf_hash TEXT NOT NULL
+);
+```
+
+### Edges Table
+
+```sql
+CREATE TABLE IF NOT EXISTS edges (
+    source TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    target TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('causes','contemporaneous','same_location','thematic')),
+    weight FLOAT DEFAULT 1.0,
+    theme TEXT DEFAULT '',
+    PRIMARY KEY (source, target, type)
+);
+```
+
+<Note>
+The `edges` table uses a composite primary key `(source, target, type)`, allowing multiple edge types between the same two nodes.
+</Note>
+
+## Indexes for Performance
+
+The schema includes several indexes optimized for common query patterns:
+
+```sql
+-- Core indexes
+CREATE INDEX IF NOT EXISTS idx_nodes_visibility ON nodes(visibility);
+CREATE INDEX IF NOT EXISTS idx_nodes_month_day ON nodes(month, day);
+CREATE INDEX IF NOT EXISTS idx_nodes_year ON nodes(year);
+CREATE INDEX IF NOT EXISTS idx_nodes_location ON nodes(country, region, city);
+CREATE INDEX IF NOT EXISTS idx_nodes_source_type ON nodes(source_type);
+
+-- Array indexes (GIN)
+CREATE INDEX IF NOT EXISTS idx_nodes_tags ON nodes USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_nodes_figures ON nodes USING GIN(figures);
+
+-- Edge indexes
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+
+-- Full-text search (trigram)
+CREATE INDEX IF NOT EXISTS idx_nodes_name_trgm ON nodes USING GIN(name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_nodes_one_liner_trgm ON nodes USING GIN(one_liner gin_trgm_ops);
+```
+
+<Info>
+Trigram indexes (`pg_trgm`) enable fast fuzzy text search. If the extension isn't available, the service gracefully skips these indexes.
+</Info>
+
+## GraphManager Class
+
+The `GraphManager` class in `app/core/graph.py` provides the async interface to the graph:
+
+```python
+class GraphManager:
+    def __init__(self, pool: asyncpg.Pool, **_kwargs):
+        self.pool = pool
+
+    async def add_node(self, node_id: str, **attrs) -> None:
+        # Insert node with conflict resolution
+        # Automatically calls _auto_link() after insertion
+        ...
+
+    async def add_edge(self, src: str, tgt: str, edge_type: str, **attrs) -> None:
+        # Validates edge type and inserts
+        ...
+
+    async def get_node(self, node_id: str) -> dict | None:
+        # Fetch single node by ID
+        ...
+
+    async def get_neighbors(self, node_id: str) -> list[dict]:
+        # Get all connected nodes with edge metadata
+        ...
+```
+
+## Automatic Edge Linking
+
+When a node is added via `add_node()`, the `_auto_link()` method automatically creates bidirectional edges based on three criteria:
+
+### 1. Contemporaneous Links
+
+Events within ±1 year are linked automatically:
+
+```python
+# From graph.py:426-441
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight)
+    SELECT $1, id, 'contemporaneous', 0.5
+    FROM nodes
+    WHERE id != $1
+      AND year IS NOT NULL
+      AND abs(year - $2) <= 1
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = nodes.id AND type = 'contemporaneous'
+      )
+    """,
+    node_id,
+    node_year,
+)
+```
+
+### 2. Same Location Links
+
+Events at the same country, region, and city are connected:
+
+```python
+# From graph.py:461-477
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight)
+    SELECT $1, id, 'same_location', 0.5
+    FROM nodes
+    WHERE id != $1
+      AND country = $2 AND region = $3 AND city = $4
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = nodes.id AND type = 'same_location'
+      )
+    """,
+    node_id,
+    node_country,
+    node_region,
+    node_city,
+)
+```
+
+### 3. Thematic Links
+
+Events with overlapping tags are linked, with the shared tags stored in the `theme` field:
+
+```python
+# From graph.py:498-516
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight, theme)
+    SELECT $1, n.id, 'thematic', 0.3,
+           array_to_string(ARRAY(
+               SELECT unnest($2::text[]) INTERSECT SELECT unnest(n.tags)
+               ORDER BY 1
+           ), ', ')
+    FROM nodes n
+    WHERE n.id != $1
+      AND n.tags && $2::text[]
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = n.id AND type = 'thematic'
+      )
+    """,
+    node_id,
+    node_tags,
+)
+```
+
+<Tip>
+The `&&` operator efficiently checks for array overlap in PostgreSQL, and the `theme` field captures the specific tags that overlap.
+</Tip>
+
+## Source Types
+
+Each node carries a `source_type` field indicating its provenance:
+
+| Type | Description |
+|------|-------------|
+| `historical` | Verified historical event (seed data or curated) |
+| `expander` | Generated by autonomous graph expansion (LLM-driven) |
+| `simulation` | Output from Pro temporal simulation |
+| `predicted` | Rendered Future awaiting validation |
+
+```python
+# Example: Query nodes by source type
+rows = await conn.fetch(
+    "SELECT * FROM nodes WHERE source_type = $1",
+    "expander"
+)
+```
+
+## Graph Statistics
+
+The `stats()` method provides aggregate metrics across the graph:
+
+```python
+# From graph.py:347-368
+async def stats(self) -> dict:
+    async with self.pool.acquire() as conn:
+        total_nodes = await conn.fetchval("SELECT count(*) FROM nodes")
+        total_edges = await conn.fetchval("SELECT count(*) FROM edges")
+        layer_rows = await conn.fetch(
+            "SELECT layer::text AS layer, count(*) AS cnt FROM nodes GROUP BY layer"
+        )
+        edge_type_rows = await conn.fetch(
+            "SELECT type, count(*) AS cnt FROM edges GROUP BY type"
+        )
+        source_type_rows = await conn.fetch(
+            "SELECT coalesce(source_type, 'historical') AS source_type, count(*) AS cnt FROM nodes GROUP BY source_type"
+        )
+    return {
+        "total_nodes": total_nodes,
+        "total_edges": total_edges,
+        "layer_counts": {row["layer"]: row["cnt"] for row in layer_rows},
+        "edge_type_counts": {row["type"]: row["cnt"] for row in edge_type_rows},
+        "source_type_counts": {
+            row["source_type"]: row["cnt"] for row in source_type_rows
+        },
+    }
+```
+
+## Frontier Node Selection
+
+The Expander worker uses `get_frontier_nodes()` to identify low-degree nodes for expansion:
+
+```python
+# From graph.py:370-387
+async def get_frontier_nodes(self, threshold: int = 3) -> list[str]:
+    async with self.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT n.id, coalesce(ec.cnt, 0) AS deg
+            FROM nodes n
+            LEFT JOIN (
+                SELECT id, count(*) AS cnt FROM (
+                    SELECT source AS id FROM edges
+                    UNION ALL
+                    SELECT target AS id FROM edges
+                ) sub GROUP BY id
+            ) ec ON ec.id = n.id
+            WHERE coalesce(ec.cnt, 0) < $1
+            """,
+            threshold,
+        )
+    return [row["id"] for row in rows]
+```
+
+<Note>
+Nodes with fewer than 3 connections are considered "frontier" nodes—candidates for autonomous expansion.
+</Note>
+
+## Data Interchange: TDF Integration
+
+Every node includes a `tdf_hash` field for deduplication and cross-service interchange:
+
+```python
+# From graph.py:95-98
+if not attrs.get("tdf_hash"):
+    attrs["tdf_hash"] = compute_tdf_hash(
+        {"slug": node_id.split("/")[-1] if "/" in node_id else node_id, **attrs}
+    )
+```
+
+This hash enables the `/ingest/tdf` endpoint and `?format=tdf` query parameter for seamless data exchange with sibling services (Flash, Pro, SNAG Bench).

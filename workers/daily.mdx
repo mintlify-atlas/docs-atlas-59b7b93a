@@ -1,0 +1,304 @@
+---
+title: "Daily Worker"
+description: "Automated 'Today in History' scene generation"
+---
+
+## Overview
+
+The **Daily Worker** runs once every 24 hours to generate Flash scenes for "Today in History" events. It identifies historically significant events without visualizations and queues them for rendering, helping populate the graph with rich content.
+
+<Note>
+The Daily Worker is controlled by the `DAILY_CRON_ENABLED` feature flag and requires a `JobManager` instance.
+</Note>
+
+## Configuration
+
+```python
+DAILY_INTERVAL = 86400  # 24 hours
+MAX_DAILY_GENERATIONS = 5
+
+class DailyWorker:
+    def __init__(
+        self,
+        graph_manager: GraphManager,
+        job_manager: JobManager | None,
+        interval_seconds: int = DAILY_INTERVAL,
+    ):
+        self.gm = graph_manager
+        self.jm = job_manager
+        self.interval = interval_seconds
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `graph_manager` | Required | GraphManager for querying events |
+| `job_manager` | Required | JobManager for scene generation |
+| `interval_seconds` | `86400` | Time between runs (24 hours) |
+
+### Constants
+
+| Constant | Value | Purpose |
+|----------|-------|----------|
+| `DAILY_INTERVAL` | `86400` | Default interval (24 hours in seconds) |
+| `MAX_DAILY_GENERATIONS` | `5` | Max scenes to generate per run |
+
+### Environment Variables
+
+```bash
+DAILY_CRON_ENABLED=true
+```
+
+## Worker Lifecycle
+
+```python
+async def start(self):
+    logger.info("Daily worker starting")
+    while True:
+        try:
+            await self._run_daily()
+        except asyncio.CancelledError:
+            logger.info("Daily worker cancelled")
+            break
+        except Exception as e:
+            logger.error("Daily worker error: %s", e)
+        await asyncio.sleep(self.interval)
+```
+
+### Startup
+
+In `app/main.py`:
+
+```python
+daily_task = None
+if settings.DAILY_CRON_ENABLED:
+    from app.workers.daily import DailyWorker
+    
+    daily = DailyWorker(gm, job_manager)
+    daily_task = asyncio.create_task(daily.start())
+    logger.info("Daily worker started")
+```
+
+### Shutdown
+
+```python
+if daily_task:
+    daily_task.cancel()
+```
+
+## Daily Workflow
+
+Each 24-hour cycle follows this algorithm:
+
+### 1. Find Today's Events
+
+```python
+async def _run_daily(self):
+    now = datetime.now(timezone.utc)
+    events = await self.gm.today_in_history(now.month, now.day)
+    logger.info(
+        "Today in history (%s/%s): %d events found",
+        now.month,
+        now.day,
+        len(events),
+    )
+```
+
+The `today_in_history()` method queries the graph for all events matching the current month and day (regardless of year).
+
+### 2. Filter Sceneless Events
+
+```python
+def get_sceneless_events(self, events: list[dict]) -> list[dict]:
+    return [e for e in events if not e.get("flash_timepoint_id")]
+```
+
+Only events without `flash_timepoint_id` are candidates for generation.
+
+### 3. Rank by Importance
+
+```python
+async def _rank_events(self, events: list[dict]) -> list[dict]:
+    scored = []
+    for e in events:
+        path = e.get("path", "")
+        deg = await self.gm.degree(path) if path else 0
+        layer = e.get("layer", 0)
+        scored.append((e, deg + layer * 2))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [e for e, _ in scored]
+```
+
+**Ranking formula**: `score = degree + (layer × 2)`
+
+- **Degree**: Number of connections (popularity)
+- **Layer**: Event importance tier (higher = more significant)
+
+### 4. Generate Top Events
+
+```python
+to_generate = (await self._rank_events(sceneless))[:MAX_DAILY_GENERATIONS]
+
+for event in to_generate:
+    name = event.get("name", "")
+    year = event.get("year", "")
+    query = f"{name} ({year})"
+    job = self.jm.create_job(
+        query=query, preset="balanced", visibility="public"
+    )
+    await self.jm.process_job(job)
+    logger.info("Daily generation queued: %s (job %s)", query, job.id)
+```
+
+Up to 5 top-ranked events are queued for scene generation.
+
+## Example Run
+
+On March 6, 2026:
+
+```
+2026-03-06 00:00:05 INFO clockchain.daily Daily worker starting
+2026-03-06 00:00:10 INFO clockchain.daily Today in history (3/6): 42 events found
+2026-03-06 00:00:10 INFO clockchain.daily Events without Flash scenes: 18
+2026-03-06 00:00:15 INFO clockchain.daily Daily generation queued: Michelangelo born (1475) (job job_abc123)
+2026-03-06 00:00:20 INFO clockchain.daily Daily generation queued: Alamo falls (1836) (job job_abc124)
+2026-03-06 00:00:25 INFO clockchain.daily Daily generation queued: Ghana independence (1957) (job job_abc125)
+2026-03-06 00:00:30 INFO clockchain.daily Daily generation queued: Cyrus Vance dies (2002) (job job_abc126)
+2026-03-06 00:00:35 INFO clockchain.daily Daily generation queued: SpaceX Starship test (2021) (job job_abc127)
+```
+
+## Ranking Strategy
+
+The ranking algorithm prioritizes:
+
+1. **Well-connected events**: High degree indicates multiple historical relationships
+2. **High-layer events**: Core historical events curated by humans
+3. **Combination**: Layer is weighted 2× higher than degree
+
+### Example Scores
+
+| Event | Degree | Layer | Score | Rank |
+|-------|--------|-------|-------|------|
+| Moon landing | 8 | 3 | 8 + 6 = **14** | 1st |
+| Minor local event | 1 | 1 | 1 + 2 = **3** | 5th |
+| Battle of Hastings | 5 | 2 | 5 + 4 = **9** | 2nd |
+
+## Integration with JobManager
+
+The Daily Worker uses `JobManager` for generation:
+
+```python
+job = self.jm.create_job(
+    query="Moon landing (1969)",
+    preset="balanced",
+    visibility="public"
+)
+await self.jm.process_job(job)
+```
+
+The JobManager:
+1. Screens the query with the Judge
+2. Calls the Renderer to generate the scene
+3. Updates the graph node with `flash_timepoint_id`
+4. Returns the result
+
+## Resource Management
+
+<Warning>
+Generating 5 scenes daily at ~45 seconds each consumes approximately 3.75 minutes of Flash service time per day. Monitor your Flash quota accordingly.
+</Warning>
+
+### Rate Limiting
+
+If Flash rate limits are hit:
+
+```python
+try:
+    await self.jm.process_job(job)
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 429:
+        logger.warning("Flash rate limited, deferring job %s", job.id)
+        # Job remains in queue for retry
+```
+
+## Monitoring
+
+Track Daily Worker activity:
+
+```bash
+# Watch for daily runs
+tail -f logs/clockchain.log | grep "clockchain.daily"
+
+# Count generated scenes
+curl http://localhost:8000/api/timepoints | jq '[.[] | select(.created_by == "daily")] | length'
+```
+
+### Key Metrics
+
+- Events found for today
+- Events without scenes
+- Scenes generated
+- Generation failures
+
+## Error Handling
+
+The Daily Worker gracefully handles failures:
+
+```python
+try:
+    await self._run_daily()
+except asyncio.CancelledError:
+    logger.info("Daily worker cancelled")
+    break
+except Exception as e:
+    logger.error("Daily worker error: %s", e)
+```
+
+Key failure modes:
+- **No events found**: Logged and skipped
+- **All events have scenes**: Normal, nothing to do
+- **JobManager failure**: Individual jobs fail but don't crash worker
+- **Database errors**: Logged and retried next cycle
+
+## Customization
+
+### Change Generation Limit
+
+```python
+MAX_DAILY_GENERATIONS = 10  # Generate 10 scenes per day
+```
+
+### Adjust Interval
+
+```python
+daily = DailyWorker(
+    gm, 
+    job_manager, 
+    interval_seconds=43200  # 12 hours
+)
+```
+
+### Custom Ranking
+
+```python
+async def _rank_events(self, events: list[dict]) -> list[dict]:
+    # Prioritize events with more figures
+    scored = [
+        (e, len(e.get("figures", []))) 
+        for e in events
+    ]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [e for e, _ in scored]
+```
+
+## Best Practices
+
+1. **Run during off-peak hours**: Schedule the first run at midnight UTC
+2. **Monitor Flash quota**: Ensure sufficient credits for daily generations
+3. **Check logs regularly**: Watch for repeated failures
+4. **Balance generation limits**: More scenes = higher costs and load
+
+<Note>
+The Daily Worker is designed to run indefinitely. It automatically recovers from transient errors and continues on the next cycle.
+</Note>

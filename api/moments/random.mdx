@@ -1,0 +1,115 @@
+---
+title: "Random Moment"
+description: "Get a random public moment for discovery"
+---
+
+## Endpoint
+
+```http
+GET /random
+```
+
+Retrieve a random public moment from the graph. Useful for discovery features, inspiration, and "explore" functionality.
+
+## Authentication
+
+Requires a valid service key via the `verify_service_key` dependency.
+
+## Response
+
+Returns a single `MomentSummary` object:
+
+<ResponseField name="path" type="string">
+  Unique path identifier for the moment
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the moment
+</ResponseField>
+
+<ResponseField name="one_liner" type="string">
+  Brief description or summary
+</ResponseField>
+
+<ResponseField name="year" type="integer">
+  Year when the moment occurred
+</ResponseField>
+
+<ResponseField name="month" type="integer">
+  Month (1-12)
+</ResponseField>
+
+<ResponseField name="day" type="integer">
+  Day of the month (1-31)
+</ResponseField>
+
+<ResponseField name="layer" type="integer">
+  Graph layer (importance indicator)
+</ResponseField>
+
+<ResponseField name="visibility" type="string">
+  Always `public` for random results
+</ResponseField>
+
+<ResponseField name="source_type" type="string">
+  Source classification (e.g., `historical`, `generated`)
+</ResponseField>
+
+## Example
+
+### Get Random Moment
+
+```bash
+curl -X GET "https://api.timepoint.io/random" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "path": "/1969/july/apollo-11-moon-landing",
+  "name": "Apollo 11 Moon Landing",
+  "one_liner": "First humans land on the Moon",
+  "year": 1969,
+  "month": 7,
+  "day": 20,
+  "layer": 3,
+  "visibility": "public",
+  "source_type": "historical"
+}
+```
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  No public moments available in the database
+  
+  ```json
+  {
+    "detail": "No public moments available"
+  }
+  ```
+</ResponseField>
+
+## Behavior Notes
+
+- Returns only **public** moments (visibility = `public`)
+- Only considers moments with **layer >= 1** (filters out layer 0 moments)
+- Uses PostgreSQL's `ORDER BY random()` for true randomization
+- Each request returns a different moment (no caching or session state)
+- If the database has no qualifying moments, returns a 404 error
+
+## Use Cases
+
+- **Discovery features**: "Surprise me" or "Random moment" buttons
+- **Daily inspiration**: Show a random historical moment on app launch
+- **Testing**: Quickly access different moments during development
+- **Serendipity**: Help users discover moments they wouldn't search for
+- **Onboarding**: Show example moments to new users
+
+## Performance Considerations
+
+The `ORDER BY random()` approach is simple but can be slow on very large datasets. For production systems with millions of moments, consider:
+
+- Implementing a cached random ID list
+- Using a weighted random selection based on layer importance
+- Pre-computing daily/hourly random moment selections

@@ -1,0 +1,171 @@
+---
+title: "Graph Statistics"
+api: "GET /stats"
+description: "Retrieve comprehensive statistics about the knowledge graph including node counts, edge distributions, and layer breakdowns"
+---
+
+## Endpoint
+
+```
+GET /stats
+```
+
+Returns aggregate statistics about the entire knowledge graph, including total counts and breakdowns by layer, edge type, and source type.
+
+## Authentication
+
+Requires service key authentication via `X-Service-Key` header.
+
+## Response
+
+<ResponseField name="total_nodes" type="integer">
+  Total number of nodes in the graph
+</ResponseField>
+
+<ResponseField name="total_edges" type="integer">
+  Total number of edges in the graph
+</ResponseField>
+
+<ResponseField name="layer_counts" type="object">
+  Node count grouped by layer level
+  
+  <Expandable title="Layer structure">
+    Keys are layer numbers (as strings), values are node counts. Layers represent data quality/completeness tiers:
+    - `"0"` - Draft or incomplete nodes
+    - `"1"` - Basic public nodes
+    - `"2+"` - Enhanced nodes with additional metadata
+    
+    Example:
+    ```json
+    {
+      "0": 1250,
+      "1": 3400,
+      "2": 890,
+      "3": 120
+    }
+    ```
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="edge_type_counts" type="object">
+  Edge count grouped by relationship type
+  
+  <Expandable title="Edge types">
+    Keys are edge types, values are edge counts:
+    - `causes` - Causal relationships (manually curated)
+    - `contemporaneous` - Temporal proximity relationships (auto-generated)
+    - `same_location` - Geographic co-location relationships (auto-generated)
+    - `thematic` - Shared tag/theme relationships (auto-generated)
+    
+    Example:
+    ```json
+    {
+      "causes": 450,
+      "contemporaneous": 12500,
+      "same_location": 3200,
+      "thematic": 8900
+    }
+    ```
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="source_type_counts" type="object">
+  Node count grouped by data source type
+  
+  <Expandable title="Source types">
+    Keys are source type identifiers, values are node counts:
+    - `historical` - Manually curated historical data
+    - `wikipedia` - Imported from Wikipedia
+    - `flash` - User-generated flash timepoints
+    - Other custom source identifiers
+    
+    Example:
+    ```json
+    {
+      "historical": 5600,
+      "wikipedia": 2300,
+      "flash": 890
+    }
+    ```
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET "https://api.timepointclockchain.com/stats" \
+  -H "X-Service-Key: your_service_key"
+```
+
+## Example Response
+
+```json
+{
+  "total_nodes": 8790,
+  "total_edges": 25050,
+  "layer_counts": {
+    "0": 1250,
+    "1": 5200,
+    "2": 1890,
+    "3": 450
+  },
+  "edge_type_counts": {
+    "causes": 450,
+    "contemporaneous": 15600,
+    "same_location": 4200,
+    "thematic": 4800
+  },
+  "source_type_counts": {
+    "historical": 6200,
+    "wikipedia": 1800,
+    "flash": 790
+  }
+}
+```
+
+## Use Cases
+
+<Expandable title="Monitoring graph growth">
+  Track `total_nodes` and `total_edges` over time to monitor ingestion pipeline performance and graph expansion.
+</Expandable>
+
+<Expandable title="Quality assessment">
+  Use `layer_counts` to understand the distribution of data quality across the graph. Higher layers indicate more complete and curated data.
+</Expandable>
+
+<Expandable title="Relationship analysis">
+  Analyze `edge_type_counts` to understand the composition of relationships. A healthy graph should have a mix of manual causal edges and auto-generated contextual edges.
+</Expandable>
+
+<Expandable title="Source diversity">
+  Monitor `source_type_counts` to ensure diverse data sources and identify gaps in coverage.
+</Expandable>
+
+## Error Responses
+
+<ResponseField name="401" type="error">
+  Missing or invalid service key
+  
+  ```json
+  {
+    "detail": "Unauthorized"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500" type="error">
+  Database error
+  
+  ```json
+  {
+    "detail": "Internal server error"
+  }
+  ```
+</ResponseField>
+
+## Notes
+
+- Statistics are computed in real-time from the database
+- All counts reflect the current state of the graph
+- Layer counts use string keys for consistency with JSON serialization
+- Source types default to `"historical"` if not explicitly set on nodes

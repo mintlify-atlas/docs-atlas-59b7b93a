@@ -1,0 +1,254 @@
+---
+title: "Expander Worker"
+description: "Autonomous graph expansion through LLM-powered event discovery"
+---
+
+## Overview
+
+The **Graph Expander** is a long-running background worker that autonomously discovers and adds related historical events to the knowledge graph. It uses an LLM to suggest contextually relevant events from "frontier nodes" (sparsely connected events).
+
+<Note>
+The Expander must be explicitly enabled via the `EXPANSION_ENABLED` feature flag and requires a valid `OPENROUTER_API_KEY`.
+</Note>
+
+## Configuration
+
+```python
+class GraphExpander:
+    def __init__(
+        self,
+        graph_manager: GraphManager,
+        api_key: str,
+        model: str = "google/gemini-2.0-flash-001",
+        interval_seconds: int = 300,
+    ):
+        self.gm = graph_manager
+        self.api_key = api_key
+        self.model = model
+        self.interval = interval_seconds
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `graph_manager` | Required | GraphManager instance for reading/writing nodes |
+| `api_key` | Required | OpenRouter API key for LLM access |
+| `model` | `google/gemini-2.0-flash-001` | LLM model to use |
+| `interval_seconds` | `300` | Time between expansion cycles (5 minutes) |
+
+### Environment Variables
+
+```bash
+EXPANSION_ENABLED=true
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=google/gemini-2.0-flash-001  # Optional
+```
+
+## Worker Lifecycle
+
+The Expander runs continuously, executing expansion cycles at regular intervals:
+
+```python
+async def start(self):
+    logger.info("Graph expander starting (interval=%ds)", self.interval)
+    while True:
+        try:
+            await self._expand_once()
+        except asyncio.CancelledError:
+            logger.info("Graph expander cancelled")
+            break
+        except Exception as e:
+            logger.error("Expander error: %s", e)
+        await asyncio.sleep(self.interval)
+```
+
+### Startup
+
+In `app/main.py`, the Expander is initialized during application startup:
+
+```python
+expander_task = None
+if settings.EXPANSION_ENABLED and settings.OPENROUTER_API_KEY:
+    from app.workers.expander import GraphExpander
+    
+    expander = GraphExpander(
+        gm, 
+        settings.OPENROUTER_API_KEY, 
+        model=settings.OPENROUTER_MODEL
+    )
+    expander_task = asyncio.create_task(expander.start())
+    logger.info("Graph expander started")
+```
+
+### Shutdown
+
+```python
+if expander_task:
+    expander_task.cancel()
+```
+
+## Expansion Algorithm
+
+Each expansion cycle follows this workflow:
+
+### 1. Find Frontier Nodes
+
+```python
+async def _expand_once(self):
+    frontier = await self.gm.get_frontier_nodes(threshold=3)
+    if not frontier:
+        logger.info("No frontier nodes to expand")
+        return
+    
+    node_id = frontier[0]
+    node = await self.gm.get_node(node_id)
+```
+
+**Frontier nodes** are events with fewer than 3 connections, indicating they're under-explored in the graph.
+
+### 2. Generate Related Events
+
+The Expander uses an LLM to suggest 3-5 related historical events:
+
+```python
+EXPANSION_PROMPT = """You are a historian. Given this historical event, suggest 3-5 closely related historical events.
+
+Event: {name}
+Date: {year}/{month}/{day}
+Location: {country}, {region}, {city}
+Description: {one_liner}
+
+Return a JSON array of objects, each with:
+- "name": event name
+- "year": integer (negative for BCE)
+- "month": lowercase month name (e.g. "march")
+- "day": integer
+- "time": 4-digit 24hr string (e.g. "1400")
+- "country": lowercase, hyphenated
+- "region": lowercase, hyphenated
+- "city": lowercase, hyphenated
+- "one_liner": one sentence description
+- "tags": list of lowercase hyphenated tags
+- "figures": list of historical figure names
+- "edge_type": one of "causes", "contemporaneous", "same_location", "thematic"
+
+Return ONLY the JSON array, no other text."""
+```
+
+### 3. Add Events to Graph
+
+Each suggested event is added as a new node:
+
+```python
+for event in related:
+    await self._add_event(event, source_node_id=node_id)
+
+logger.info(
+    "Expansion complete: added %d events from %s", 
+    len(related), 
+    node_id
+)
+```
+
+The `_add_event` method:
+- Constructs a URL path for the event
+- Checks if the event already exists
+- Creates the node with metadata
+- Adds an edge from the source node
+
+## Edge Types
+
+The Expander creates edges with semantic relationships:
+
+| Edge Type | Meaning | Example |
+|-----------|---------|----------|
+| `causes` | Causal relationship | Treaty of Versailles → Rise of Nazi Germany |
+| `contemporaneous` | Occurred in same time period | World War I ↔ Russian Revolution |
+| `same_location` | Occurred in same place | Multiple battles in a city |
+| `thematic` | Share thematic elements | Scientific discoveries in medicine |
+
+```python
+edge_type = event.get("edge_type", "thematic")
+if edge_type in {"causes", "contemporaneous", "same_location", "thematic"}:
+    await self.gm.add_edge(source_node_id, path, edge_type, weight=0.5)
+```
+
+## Example Response Parsing
+
+The Expander handles markdown-wrapped JSON responses:
+
+```python
+text = data["choices"][0]["message"]["content"].strip()
+if text.startswith("```"):
+    text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+return json.loads(text)
+```
+
+This ensures the LLM's output is correctly parsed even if wrapped in code fences.
+
+## Node Metadata
+
+Expanded nodes are tagged with provenance:
+
+```python
+await self.gm.add_node(
+    path,
+    type="event",
+    name=event.get("name", ""),
+    year=event.get("year", 0),
+    layer=1,
+    visibility="public",
+    created_by="expander",  # Attribution
+    source_type="expander",  # Source tracking
+    tags=event.get("tags", []),
+    one_liner=event.get("one_liner", ""),
+    figures=event.get("figures", []),
+    flash_timepoint_id=None,  # No scene yet
+    created_at=datetime.now(timezone.utc).isoformat(),
+)
+```
+
+<Warning>
+Expanded events start with `flash_timepoint_id=None`. The Daily worker may later generate scenes for popular events.
+</Warning>
+
+## Error Handling
+
+The Expander gracefully handles API failures:
+
+```python
+try:
+    await self._expand_once()
+except asyncio.CancelledError:
+    logger.info("Graph expander cancelled")
+    break
+except Exception as e:
+    logger.error("Expander error: %s", e)
+```
+
+Key failure modes:
+- **LLM timeout**: 120-second timeout on OpenRouter requests
+- **Invalid JSON**: Malformed LLM responses are logged and skipped
+- **Duplicate events**: Existing events are silently ignored
+- **Edge creation errors**: Caught with `ValueError` and passed
+
+## Monitoring
+
+Watch expansion activity via logs:
+
+```
+2026-03-06 10:30:00 INFO clockchain.expander Graph expander starting (interval=300s)
+2026-03-06 10:30:05 INFO clockchain.expander Expanding from node: /1776/july/4/1200/united-states/pennsylvania/philadelphia/declaration-independence
+2026-03-06 10:30:15 INFO clockchain.expander Expansion complete: added 4 events from /1776/july/4/1200/...
+```
+
+Track graph growth with the `/health` endpoint:
+
+```bash
+curl http://localhost:8000/health | jq '.nodes, .edges'
+```

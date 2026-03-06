@@ -1,0 +1,155 @@
+---
+title: "Publish Moment"
+api: "POST /api/moments/{path}/publish"
+description: "Change the visibility of a moment from private to public"
+---
+
+## Overview
+
+The publish endpoint allows you to control moment visibility. When a moment is published (set to `public`), it becomes visible to all users and the `published_at` timestamp is automatically set.
+
+## Authentication
+
+Requires `SERVICE_API_KEY` header for authentication.
+
+```bash
+X-Service-Key: your-service-api-key
+```
+
+## Path Parameters
+
+<ParamField path="path" type="string" required>
+  The full graph path of the moment to publish. Do not include the leading slash in the URL.
+  
+  Format: `YYYY/month/DD/HHMM/country/region/city/event-slug`
+  
+  Example: `1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a`
+</ParamField>
+
+## Request Body
+
+<ParamField path="visibility" type="string" default="public">
+  The visibility level to set.
+  
+  **Options:**
+  - `public` - Visible to all users, sets `published_at` timestamp
+  - `private` - Only visible to creator/authorized users
+  - `unlisted` - Accessible via direct link but not shown in public listings
+</ParamField>
+
+## Response
+
+<ResponseField name="path" type="string">
+  The full graph path of the updated moment (includes leading slash).
+</ResponseField>
+
+<ResponseField name="visibility" type="string">
+  The new visibility level that was applied.
+</ResponseField>
+
+## Example Request (Publish)
+
+```bash
+curl -X POST https://api.clockchain.io/api/moments/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a/publish \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-service-api-key" \
+  -d '{
+    "visibility": "public"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "path": "/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a",
+  "visibility": "public"
+}
+```
+
+## Example Request (Make Private)
+
+```bash
+curl -X POST https://api.clockchain.io/api/moments/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a/publish \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-service-api-key" \
+  -d '{
+    "visibility": "private"
+  }'
+```
+
+## Example Response (Private)
+
+```json
+{
+  "path": "/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a",
+  "visibility": "private"
+}
+```
+
+## Visibility Options Explained
+
+### Public
+- Visible in all public listings and search results
+- Accessible to anonymous users
+- Sets `published_at` timestamp to current UTC time
+- Included in graph exploration and browse endpoints
+- Appears in timeline views and date-based queries
+
+<Note>
+  When a moment is set to `public`, the `published_at` field is automatically populated with the current timestamp. This field is used for sorting recently published content.
+</Note>
+
+### Private
+- Only accessible to the creator or users with appropriate permissions
+- Not shown in public listings or search results
+- Useful for draft moments or sensitive historical data
+- Can be published later by changing to `public`
+
+### Unlisted
+- Accessible via direct URL/path
+- Not included in public browse or search results
+- Useful for sharing specific moments without making them fully public
+- Does not set `published_at` timestamp
+
+## Workflow Example
+
+1. Generate a moment (defaults to `private`):
+```bash
+curl -X POST https://api.clockchain.io/api/generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-key" \
+  -d '{"query": "Moon landing July 20 1969", "visibility": "private"}'
+```
+
+2. Wait for generation to complete and get the path:
+```bash
+curl -X GET https://api.clockchain.io/api/jobs/{job_id} \
+  -H "X-Service-Key: your-key"
+```
+
+3. Review the moment data, then publish:
+```bash
+curl -X POST https://api.clockchain.io/api/moments/{path}/publish \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-key" \
+  -d '{"visibility": "public"}'
+```
+
+<Warning>
+  Ensure you review generated content before publishing to `public`. Once published, moments become visible to all users immediately.
+</Warning>
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 404 | Moment not found at the specified path |
+| 401 | Missing or invalid SERVICE_API_KEY |
+| 400 | Invalid visibility value |
+
+## Related Endpoints
+
+- [Generate Moment](/api/generation/generate) - Create new moments
+- [Get Job](/api/generation/get-job) - Check generation status
+- `/api/moments/{path}` - Fetch full moment details

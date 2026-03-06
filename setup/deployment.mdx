@@ -1,0 +1,303 @@
+---
+title: Deployment
+description: Deploy Timepoint Clockchain to production
+---
+
+Clockchain can be deployed using Railway, Docker, or as a standalone service.
+
+## Railway Deployment
+
+Clockchain is designed for Railway with automatic configuration.
+
+### Configuration
+
+Railway reads `railway.json` for build and deployment settings:
+
+```json
+{
+  "build": {
+    "builder": "DOCKERFILE"
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+### Setup Steps
+
+<Steps>
+  <Step title="Create Railway Project">
+    Create a new project in Railway and connect your repository.
+  </Step>
+
+  <Step title="Add PostgreSQL Database">
+    Add a PostgreSQL plugin to your Railway project. Railway will automatically set `DATABASE_URL`.
+  </Step>
+
+  <Step title="Set Environment Variables">
+    Configure required variables in Railway's environment settings:
+    - `SERVICE_API_KEY`
+    - `FLASH_SERVICE_KEY`
+    - `FLASH_URL` (use Railway internal URL)
+    - `OPENROUTER_API_KEY` (optional)
+    - `EXPANSION_ENABLED` (optional)
+    - `DAILY_CRON_ENABLED` (optional)
+  </Step>
+
+  <Step title="Deploy">
+    Railway automatically builds and deploys using the Dockerfile.
+  </Step>
+</Steps>
+
+### Internal Service Communication
+
+For Railway deployments, use internal URLs for service-to-service communication:
+
+```bash
+FLASH_URL=http://timepoint-flash-deploy.railway.internal:8080
+```
+
+This avoids external network hops and improves performance.
+
+## Docker Deployment
+
+Clockchain includes a multi-stage Dockerfile optimized for production.
+
+### Build Image
+
+```bash
+docker build -t clockchain:latest .
+```
+
+### Run Container
+
+<CodeGroup>
+```bash Standalone
+# Run with external PostgreSQL
+docker run -d \
+  --name clockchain \
+  -p 8080:8080 \
+  -e DATABASE_URL="postgresql://host.docker.internal:5432/clockchain" \
+  -e SERVICE_API_KEY="your-service-key" \
+  -e FLASH_SERVICE_KEY="your-flash-key" \
+  -e FLASH_URL="http://flash:8080" \
+  clockchain:latest
+```
+
+```yaml Docker Compose
+# docker-compose.yml
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: clockchain
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  clockchain:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql://postgres:password@db:5432/clockchain
+      SERVICE_API_KEY: service-key
+      FLASH_SERVICE_KEY: flash-key
+      FLASH_URL: http://flash:8080
+      EXPANSION_ENABLED: true
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
+```
+</CodeGroup>
+
+### Dockerfile Details
+
+The Dockerfile uses a two-stage build:
+
+<Accordion title="Build Stage">
+  ```dockerfile
+  FROM python:3.11-slim AS builder
+  
+  WORKDIR /build
+  COPY pyproject.toml .
+  COPY app/ app/
+  RUN pip install --no-cache-dir .
+  ```
+  
+  Installs dependencies and packages the application.
+</Accordion>
+
+<Accordion title="Runtime Stage">
+  ```dockerfile
+  FROM python:3.11-slim
+  
+  RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+  
+  WORKDIR /app
+  COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+  COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
+  COPY app/ app/
+  COPY data/ data/
+  COPY data/seeds.json /app/seeds/seeds.json
+  COPY entrypoint.sh /app/entrypoint.sh
+  
+  RUN chown -R appuser:appuser /app && chmod +x /app/entrypoint.sh
+  
+  EXPOSE 8080
+  ENTRYPOINT ["/app/entrypoint.sh"]
+  ```
+  
+  Creates non-root user, copies artifacts, and sets entrypoint.
+</Accordion>
+
+### Entrypoint Script
+
+The `entrypoint.sh` script handles permissions and starts the server:
+
+```bash
+#!/bin/sh
+# Fix volume permissions for appuser, then drop to appuser
+chown -R appuser:appuser /app/data 2>/dev/null || true
+exec su -s /bin/sh appuser -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"
+```
+
+Key features:
+- Fixes volume permissions for mounted directories
+- Drops privileges to non-root `appuser`
+- Starts Uvicorn with configurable port
+
+## Local Development
+
+For local development without Docker:
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install -e ".[dev]"
+    ```
+  </Step>
+
+  <Step title="Start PostgreSQL">
+    ```bash
+    # macOS
+    brew services start postgresql@16
+    createdb clockchain
+    
+    # Docker
+    docker run -d -p 5432:5432 \
+      -e POSTGRES_PASSWORD=test \
+      -e POSTGRES_DB=clockchain \
+      postgres:16
+    ```
+  </Step>
+
+  <Step title="Configure Environment">
+    Create `.env` file:
+    ```bash
+    DATABASE_URL=postgresql://localhost:5432/clockchain
+    SERVICE_API_KEY=dev-key
+    FLASH_SERVICE_KEY=dev-flash-key
+    FLASH_URL=http://localhost:8080
+    DEBUG=true
+    ```
+  </Step>
+
+  <Step title="Run Server">
+    ```bash
+    uvicorn app.main:app --port 8080 --reload
+    ```
+  </Step>
+</Steps>
+
+## Health Checks
+
+All deployment methods should configure health checks using the `/health` endpoint:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+```json
+{
+  "status": "ok",
+  "service": "timepoint-clockchain"
+}
+```
+
+Railway automatically uses this endpoint based on `railway.json` configuration.
+
+## Startup Process
+
+On startup, Clockchain performs these steps:
+
+<Steps>
+  <Step title="Database Connection">
+    Creates asyncpg connection pool (2-10 connections)
+  </Step>
+
+  <Step title="Schema Initialization">
+    Executes DDL to create tables and indexes if they don't exist
+  </Step>
+
+  <Step title="Seed Data">
+    Loads seed data if the nodes table is empty
+  </Step>
+
+  <Step title="Start Workers">
+    Launches background workers:
+    - Renderer (always)
+    - Expander (if `EXPANSION_ENABLED=true`)
+    - Daily (if `DAILY_CRON_ENABLED=true`)
+    - Judge (used during generation)
+  </Step>
+
+  <Step title="API Server">
+    Starts FastAPI application on configured port
+  </Step>
+</Steps>
+
+## Production Checklist
+
+<Check>PostgreSQL 16+ with sufficient resources</Check>
+<Check>All required environment variables set</Check>
+<Check>`SERVICE_API_KEY` is a strong secret</Check>
+<Check>Database connection string uses SSL in production</Check>
+<Check>Health check endpoint configured</Check>
+<Check>Restart policy set (Railway: ON_FAILURE with 10 retries)</Check>
+<Check>Logs monitored for errors</Check>
+<Check>Backup strategy for PostgreSQL database</Check>
+
+## Monitoring
+
+Key metrics to monitor:
+
+- `/health` endpoint availability
+- Database connection pool usage
+- API response times
+- Background worker activity (if enabled)
+- PostgreSQL query performance
+- Node and edge count growth
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the Clockchain API endpoints
+  </Card>
+  
+  <Card title="Graph Architecture" icon="diagram-project" href="/concepts/graph-architecture">
+    Learn about the temporal causal graph structure
+  </Card>
+</CardGroup>

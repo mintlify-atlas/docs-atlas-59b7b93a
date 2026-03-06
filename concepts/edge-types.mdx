@@ -1,0 +1,380 @@
+---
+title: Edge Types
+description: Typed relationships between temporal nodes
+---
+
+The Clockchain uses **four distinct edge types** to encode different kinds of relationships between historical moments. Each type carries specific semantic meaning and is created either automatically (via `_auto_link()`) or manually (via the Expander or API).
+
+## Edge Type Overview
+
+| Type | Meaning | Auto-linked? | Weight | Bidirectional? |
+|------|---------|--------------|--------|----------------|
+| `causes` | Causal relationship | ❌ No | 1.0 | ❌ No (directed) |
+| `contemporaneous` | Same year (±1) | ✅ Yes | 0.5 | ✅ Yes |
+| `same_location` | Matching country + region + city | ✅ Yes | 0.5 | ✅ Yes |
+| `thematic` | Overlapping tags | ✅ Yes | 0.3 | ✅ Yes |
+
+<Note>
+Edge types are enforced at the database level via a `CHECK` constraint: `type IN ('causes','contemporaneous','same_location','thematic')`
+</Note>
+
+## Causal Edges
+
+**Semantic meaning**: Node A directly caused or enabled Node B.
+
+### Characteristics
+
+- **Directed**: `source → target` implies causality
+- **Manual only**: Never auto-generated (requires human or LLM judgment)
+- **Weight**: Default `1.0` (highest confidence)
+- **Created by**: Expander worker, manual API calls, or subgraph ingest
+
+### Example: Trinity Test → Hiroshima Bombing
+
+```python
+await graph.add_edge(
+    src="/1945/july/16/0529/united-states/new-mexico/los-alamos/trinity-test",
+    tgt="/1945/august/6/0815/japan/hiroshima/hiroshima/atomic-bombing-of-hiroshima",
+    edge_type="causes",
+    weight=1.0
+)
+```
+
+### Database Constraint
+
+```sql
+-- From db.py:47
+type TEXT NOT NULL CHECK (type IN ('causes','contemporaneous','same_location','thematic')),
+```
+
+<Info>
+Causal edges are the backbone of the "Rendered Past" — each new causal link tightens the Bayesian prior on what could have happened in historical gaps.
+</Info>
+
+## Contemporaneous Edges
+
+**Semantic meaning**: Events occurred in the same time period (within ±1 year).
+
+### Characteristics
+
+- **Bidirectional**: Both `A → B` and `B → A` are created
+- **Auto-generated**: Created by `_auto_link()` when a node is added
+- **Weight**: `0.5` (moderate confidence)
+- **Condition**: `abs(year_A - year_B) <= 1`
+
+### Auto-Link Implementation
+
+```python
+# From graph.py:426-441
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight)
+    SELECT $1, id, 'contemporaneous', 0.5
+    FROM nodes
+    WHERE id != $1
+      AND year IS NOT NULL
+      AND abs(year - $2) <= 1
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = nodes.id AND type = 'contemporaneous'
+      )
+    """,
+    node_id,
+    node_year,
+)
+```
+
+### Example: Apollo 11 ↔ Apollo 12
+
+```
+Apollo 11 Moon Landing (July 20, 1969)
+  ↔ [contemporaneous, weight=0.5]
+Apollo 12 Lightning Launch (November 14, 1969)
+```
+
+Both events share `year=1969`, so bidirectional `contemporaneous` edges are auto-created.
+
+<Tip>
+Contemporaneous edges enable "Browse by Year" features—users can explore clusters of events from the same historical period.
+</Tip>
+
+## Same Location Edges
+
+**Semantic meaning**: Events occurred at the same geographic location (country, region, city).
+
+### Characteristics
+
+- **Bidirectional**: Both `A → B` and `B → A` are created
+- **Auto-generated**: Created by `_auto_link()` when a node is added
+- **Weight**: `0.5` (moderate confidence)
+- **Condition**: Exact match on `country`, `region`, and `city` fields
+
+### Auto-Link Implementation
+
+```python
+# From graph.py:461-477
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight)
+    SELECT $1, id, 'same_location', 0.5
+    FROM nodes
+    WHERE id != $1
+      AND country = $2 AND region = $3 AND city = $4
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = nodes.id AND type = 'same_location'
+      )
+    """,
+    node_id,
+    node_country,
+    node_region,
+    node_city,
+)
+```
+
+### Example: Events in Rome
+
+```
+Assassination of Julius Caesar (-44, Rome)
+  ↔ [same_location, weight=0.5]
+Sack of Rome (410, Rome)
+  ↔ [same_location, weight=0.5]
+Battle of Monte Cassino (1944, Rome region)
+```
+
+All events with `country="italy", region="lazio", city="rome"` are automatically connected.
+
+<Note>
+Location fields use **modern political boundaries** for consistency. Historical geopolitical entities (e.g., "Roman Empire") are encoded in tags, not location fields.
+</Note>
+
+## Thematic Edges
+
+**Semantic meaning**: Events share common themes or categories (tag overlap).
+
+### Characteristics
+
+- **Bidirectional**: Both `A → B` and `B → A` are created
+- **Auto-generated**: Created by `_auto_link()` when a node is added
+- **Weight**: `0.3` (lowest confidence among auto-links)
+- **Condition**: At least one tag in common (`tags && tags` in PostgreSQL)
+- **Theme field**: Stores the specific overlapping tags
+
+### Auto-Link Implementation
+
+```python
+# From graph.py:498-516
+await conn.execute(
+    """
+    INSERT INTO edges (source, target, type, weight, theme)
+    SELECT $1, n.id, 'thematic', 0.3,
+           array_to_string(ARRAY(
+               SELECT unnest($2::text[]) INTERSECT SELECT unnest(n.tags)
+               ORDER BY 1
+           ), ', ')
+    FROM nodes n
+    WHERE n.id != $1
+      AND n.tags && $2::text[]
+      AND NOT EXISTS (
+          SELECT 1 FROM edges
+          WHERE source = $1 AND target = n.id AND type = 'thematic'
+      )
+    """,
+    node_id,
+    node_tags,
+)
+```
+
+<Info>
+The `theme` field captures the specific tags that overlap, allowing fine-grained filtering (e.g., "show me all 'space-exploration' edges").
+</Info>
+
+### Example: Space Exploration Events
+
+```
+Apollo 11 Moon Landing
+  tags: ["space-exploration", "moon-landing", "nasa"]
+    ↔ [thematic, weight=0.3, theme="space-exploration, nasa"]
+Voyager 1 Jupiter Flyby
+  tags: ["space-exploration", "nasa", "planetary-science"]
+```
+
+Overlapping tags: `["space-exploration", "nasa"]` → stored in `theme` field.
+
+### Tag Overlap Calculation
+
+The SQL uses PostgreSQL's array operators:
+
+- `&&`: Array overlap operator (returns `true` if arrays share any element)
+- `INTERSECT`: Set intersection (returns only shared elements)
+
+```sql
+-- Check for overlap
+WHERE n.tags && $2::text[]
+
+-- Calculate shared tags
+SELECT unnest($2::text[]) INTERSECT SELECT unnest(n.tags)
+```
+
+## Edge Validation
+
+Edge types are validated in `GraphManager.add_edge()`:
+
+```python
+# From graph.py:180-184
+async def add_edge(self, src: str, tgt: str, edge_type: str, **attrs) -> None:
+    if edge_type not in VALID_EDGE_TYPES:
+        raise ValueError(
+            f"Invalid edge type: {edge_type}. Must be one of {VALID_EDGE_TYPES}"
+        )
+```
+
+Where:
+
+```python
+# From graph.py:11
+VALID_EDGE_TYPES = {"causes", "contemporaneous", "same_location", "thematic"}
+```
+
+## Querying by Edge Type
+
+### Get All Causal Edges
+
+```sql
+SELECT source, target, weight FROM edges WHERE type = 'causes';
+```
+
+### Get Neighbors with Edge Metadata
+
+```python
+# From graph.py:317-345
+async def get_neighbors(self, node_id: str) -> list[dict]:
+    async with self.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT n.id, n.name, e.type AS edge_type, e.weight, e.theme, 'out' AS direction
+            FROM edges e JOIN nodes n ON n.id = e.target
+            WHERE e.source = $1
+            UNION ALL
+            SELECT n.id, n.name, e.type AS edge_type, e.weight, e.theme, 'in' AS direction
+            FROM edges e JOIN nodes n ON n.id = e.source
+            WHERE e.target = $1
+            """,
+            node_id,
+        )
+    return [
+        {
+            "path": row["id"],
+            "name": row["name"],
+            "edge_type": row["edge_type"],
+            "weight": row["weight"],
+            "theme": row["theme"],
+        }
+        for row in rows
+    ]
+```
+
+### Example Response
+
+```json
+[
+  {
+    "path": "/1969/july/20/2017/united-states/florida/cape-canaveral/apollo-11-moon-landing",
+    "name": "Apollo 11 Moon Landing",
+    "edge_type": "contemporaneous",
+    "weight": 0.5,
+    "theme": ""
+  },
+  {
+    "path": "/1970/april/13/1913/united-states/florida/cape-canaveral/apollo-13-oxygen-tank-explosion",
+    "name": "Apollo 13 Oxygen Tank Explosion",
+    "edge_type": "thematic",
+    "weight": 0.3,
+    "theme": "space-exploration, nasa"
+  }
+]
+```
+
+## Edge Statistics
+
+The `/api/v1/stats` endpoint provides edge type distribution:
+
+```python
+# From graph.py:354-356
+edge_type_rows = await conn.fetch(
+    "SELECT type, count(*) AS cnt FROM edges GROUP BY type"
+)
+```
+
+### Example Response
+
+```json
+{
+  "total_edges": 3421,
+  "edge_type_counts": {
+    "causes": 87,
+    "contemporaneous": 1842,
+    "same_location": 923,
+    "thematic": 569
+  }
+}
+```
+
+<Note>
+`contemporaneous` edges typically dominate the graph since they're created for all nodes within ±1 year.
+</Note>
+
+## Composite Primary Key
+
+The `edges` table allows **multiple edge types between the same two nodes**:
+
+```sql
+-- From db.py:50
+PRIMARY KEY (source, target, type)
+```
+
+### Example: Multi-Type Edges
+
+```sql
+-- Two Apollo missions can have multiple relationships:
+INSERT INTO edges (source, target, type, weight) VALUES
+  ('apollo-11', 'apollo-12', 'contemporaneous', 0.5),
+  ('apollo-11', 'apollo-12', 'thematic', 0.3);
+```
+
+## Best Practices
+
+<Accordion title="When to use causal edges">
+
+Use `causes` edges when:
+- Event A directly enabled Event B (e.g., Trinity Test → Hiroshima)
+- A discovery led to a breakthrough (e.g., DNA structure → genetic engineering)
+- A political event triggered a war (e.g., assassination → WWI)
+
+Avoid for:
+- Weak correlations (use `thematic` instead)
+- Temporal proximity without causation (use `contemporaneous`)
+
+</Accordion>
+
+<Accordion title="Optimizing auto-link performance">
+
+Auto-linking uses `INSERT...SELECT` for efficiency:
+
+1. **Contemporaneous**: O(N) where N = nodes in year ±1
+2. **Same location**: O(M) where M = nodes at same location
+3. **Thematic**: O(K) where K = nodes with overlapping tags (GIN index accelerates)
+
+For large graphs (>100k nodes), consider:
+- Batching node additions
+- Disabling auto-link during bulk imports (add edges separately)
+- Using partial indexes on high-cardinality fields
+
+</Accordion>
+
+## Source Code References
+
+- Edge type validation: `app/core/graph.py:11` (constant), `app/core/graph.py:180-184` (validation)
+- Auto-link logic: `app/core/graph.py:412-535`
+- Edge schema: `app/core/db.py:44-51`
+- Neighbor queries: `app/core/graph.py:317-345`

@@ -1,0 +1,170 @@
+---
+title: "Get Job Status"
+api: "GET /api/jobs/{job_id}"
+description: "Retrieve the current status and results of a generation job"
+---
+
+## Overview
+
+Use this endpoint to check the status of a generation job created via the [Generate](/api/generation/generate) or [Bulk Generate](/api/generation/bulk-generate) endpoints.
+
+## Authentication
+
+Requires `SERVICE_API_KEY` header for authentication.
+
+```bash
+X-Service-Key: your-service-api-key
+```
+
+## Path Parameters
+
+<ParamField path="job_id" type="string" required>
+  The unique job identifier returned from the generate endpoint.
+</ParamField>
+
+## Response
+
+<ResponseField name="job_id" type="string">
+  The job's unique identifier.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current processing status.
+  
+  **Job States:**
+  - `pending` - Job queued, not yet started
+  - `processing` - Currently generating moment via Flash API
+  - `completed` - Successfully generated and indexed to graph
+  - `failed` - Generation or indexing failed
+</ResponseField>
+
+<ResponseField name="path" type="string | null">
+  Full graph path where the moment is indexed. Only populated when `status` is `completed`.
+  
+  Format: `/YYYY/month/DD/HHMM/country/region/city/event-slug`
+  
+  Example: `/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a`
+</ResponseField>
+
+<ResponseField name="error" type="string | null">
+  Detailed error message if `status` is `failed`. Includes Flash API response details when available.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the job was created.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string | null">
+  ISO 8601 timestamp when the job finished processing (success or failure). `null` while `pending` or `processing`.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET https://api.clockchain.io/api/jobs/a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f \
+  -H "X-Service-Key: your-service-api-key"
+```
+
+## Example Response (Pending)
+
+```json
+{
+  "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+  "status": "pending",
+  "path": null,
+  "error": null,
+  "created_at": "2026-03-06T14:32:18.123456Z",
+  "completed_at": null
+}
+```
+
+## Example Response (Processing)
+
+```json
+{
+  "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+  "status": "processing",
+  "path": null,
+  "error": null,
+  "created_at": "2026-03-06T14:32:18.123456Z",
+  "completed_at": null
+}
+```
+
+## Example Response (Completed)
+
+```json
+{
+  "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+  "status": "completed",
+  "path": "/1776/july/04/1200/united-states/pennsylvania/philadelphia/signing-declaration-independence-3f4a",
+  "error": null,
+  "created_at": "2026-03-06T14:32:18.123456Z",
+  "completed_at": "2026-03-06T14:32:32.987654Z"
+}
+```
+
+## Example Response (Failed)
+
+```json
+{
+  "job_id": "a3d8f7e2-4c1b-4a9e-8f2d-1e3c5b7a9d0f",
+  "status": "failed",
+  "path": null,
+  "error": "Flash API error: Invalid date format | response: {\"detail\":\"Year must be a valid integer\"}",
+  "created_at": "2026-03-06T14:32:18.123456Z",
+  "completed_at": "2026-03-06T14:32:25.456789Z"
+}
+```
+
+## Polling Best Practices
+
+<Note>
+  **Recommended polling strategy:**
+  1. Poll every 2 seconds for the first 30 seconds
+  2. Increase to 5-second intervals afterward
+  3. Set a maximum timeout (e.g., 2 minutes)
+  4. Exponential backoff for production systems
+</Note>
+
+## Understanding Job States
+
+### Pending
+The job has been created and added to the queue but hasn't started processing yet. This state is usually very brief.
+
+### Processing
+The job is actively:
+1. Calling the Flash Timepoint API with the query
+2. Parsing the Flash response
+3. Extracting structured data (date, location, figures, etc.)
+4. Building the graph path
+5. Indexing the node into the Clockchain graph
+
+### Completed
+The moment has been successfully generated and indexed. The `path` field contains the location in the graph where you can retrieve the full moment details.
+
+### Failed
+Generation failed at some stage. Check the `error` field for details. Common failure reasons:
+- Flash API errors (invalid date, ambiguous event, rate limits)
+- Network timeouts
+- Invalid query format
+- Graph indexing errors
+
+<Warning>
+  Jobs are stored in memory. If the service restarts, job history may be lost. For production use, implement job result persistence or save the `path` immediately when `status` becomes `completed`.
+</Warning>
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 404 | Job ID not found |
+| 401 | Missing or invalid SERVICE_API_KEY |
+| 503 | Job manager not available |
+
+## Next Steps
+
+Once a job is completed:
+1. Use the `path` to fetch full moment details via `/api/moments/{path}`
+2. [Publish the moment](/api/generation/publish) to make it publicly visible
+3. Query connected moments via the graph API

@@ -1,0 +1,374 @@
+---
+title: "Ingest Subgraph"
+description: "Import a connected subgraph with nodes and explicit edge relationships"
+---
+
+## Overview
+
+The `/ingest/subgraph` endpoint allows you to import both nodes and edges in a single request. This is ideal for ingesting pre-computed relationship graphs where you want to explicitly define connections between timepoint events.
+
+## Endpoint
+
+<ParamField path="POST" type="string">
+  `/api/v1/ingest/subgraph`
+</ParamField>
+
+## Authentication
+
+Requires a valid service key passed via the `X-Service-Key` header.
+
+```bash
+curl -X POST https://api.timepoint.io/api/v1/ingest/subgraph \
+  -H "X-Service-Key: your-service-key" \
+  -H "Content-Type: application/json"
+```
+
+## Request Body
+
+<ParamField body="nodes" type="array" required>
+  Array of node objects representing timepoint events.
+</ParamField>
+
+<ParamField body="edges" type="array" required>
+  Array of edge objects defining relationships between nodes.
+</ParamField>
+
+### Node Structure
+
+<Expandable title="Node Fields">
+
+<ParamField body="id" type="string" required>
+  Unique node identifier (e.g., `"1969/07/moon-landing"`).
+</ParamField>
+
+<ParamField body="name" type="string">
+  Human-readable event name.
+</ParamField>
+
+<ParamField body="year" type="integer">
+  Year of the event (nullable for undated events).
+</ParamField>
+
+<ParamField body="month" type="string">
+  Month name (e.g., `"July"`).
+</ParamField>
+
+<ParamField body="month_num" type="integer">
+  Month number 1-12.
+</ParamField>
+
+<ParamField body="day" type="integer">
+  Day of the month.
+</ParamField>
+
+<ParamField body="time" type="string">
+  Time of day in HH:MM format.
+</ParamField>
+
+<ParamField body="country" type="string">
+  Country where the event occurred.
+</ParamField>
+
+<ParamField body="region" type="string">
+  State, province, or region.
+</ParamField>
+
+<ParamField body="city" type="string">
+  City or locality.
+</ParamField>
+
+<ParamField body="slug" type="string">
+  URL-safe identifier portion (e.g., `"moon-landing"`).
+</ParamField>
+
+<ParamField body="layer" type="integer">
+  Visibility layer (0=public, higher numbers=more restricted).
+</ParamField>
+
+<ParamField body="visibility" type="string">
+  Visibility setting: `"public"` or `"private"`. Default: `"public"`.
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Array of string tags for categorization.
+</ParamField>
+
+<ParamField body="one_liner" type="string">
+  Brief description or summary of the event.
+</ParamField>
+
+<ParamField body="figures" type="array">
+  Array of notable people or entities involved.
+</ParamField>
+
+<ParamField body="source_type" type="string">
+  Origin classification of the data:
+  - `"historical"` - Verified historical fact
+  - `"generated"` - AI-generated content
+  - `"user_input"` - User-submitted content
+  - `"synthetic"` - Programmatically created
+  
+  Default: `"historical"`
+</ParamField>
+
+<ParamField body="confidence" type="number">
+  Confidence score between 0.0 and 1.0 indicating data quality or certainty. Use this to track the reliability of the data source.
+</ParamField>
+
+<ParamField body="source_run_id" type="string">
+  Identifier for the ingestion batch or pipeline run. Useful for tracking and debugging bulk imports.
+</ParamField>
+
+<ParamField body="tdf_hash" type="string">
+  Pre-computed TDF hash for deduplication. If omitted, will be computed automatically from canonical fields.
+</ParamField>
+
+</Expandable>
+
+### Edge Structure
+
+<Expandable title="Edge Fields">
+
+<ParamField body="source" type="string" required>
+  Node ID of the source node.
+</ParamField>
+
+<ParamField body="target" type="string" required>
+  Node ID of the target node.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  Relationship type. Common values:
+  - `"causal"` - One event caused another
+  - `"thematic"` - Events share a common theme
+  - `"temporal"` - Events are temporally related
+  - `"spatial"` - Events occurred in the same location
+  
+  Default: `"thematic"`
+</ParamField>
+
+<ParamField body="weight" type="number">
+  Strength of the relationship (0.0 to 1.0+). Higher values indicate stronger connections. Default: `1.0`.
+</ParamField>
+
+<ParamField body="theme" type="string">
+  Optional thematic label describing the nature of the relationship (e.g., `"space-exploration"`, `"cold-war"`).
+</ParamField>
+
+</Expandable>
+
+## Response
+
+<ResponseField name="ingested_nodes" type="integer">
+  Number of nodes successfully added to the graph.
+</ResponseField>
+
+<ResponseField name="ingested_edges" type="integer">
+  Number of edges successfully created between nodes.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.timepoint.io/api/v1/ingest/subgraph \
+  -H "X-Service-Key: your-service-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nodes": [
+      {
+        "id": "1957/10/sputnik-1",
+        "name": "Sputnik 1 Launch",
+        "year": 1957,
+        "month": "October",
+        "month_num": 10,
+        "day": 4,
+        "country": "Soviet Union",
+        "slug": "sputnik-1",
+        "one_liner": "First artificial satellite in orbit",
+        "layer": 0,
+        "visibility": "public",
+        "tags": ["space", "satellite", "cold-war"],
+        "figures": ["Sergei Korolev"],
+        "source_type": "historical",
+        "confidence": 1.0,
+        "source_run_id": "space-race-import"
+      },
+      {
+        "id": "1969/07/moon-landing",
+        "name": "Apollo 11 Moon Landing",
+        "year": 1969,
+        "month": "July",
+        "month_num": 7,
+        "day": 20,
+        "time": "20:17",
+        "country": "United States",
+        "region": "Space",
+        "city": "Moon",
+        "slug": "moon-landing",
+        "one_liner": "First humans land on the Moon",
+        "layer": 0,
+        "visibility": "public",
+        "tags": ["space", "nasa", "exploration"],
+        "figures": ["Neil Armstrong", "Buzz Aldrin"],
+        "source_type": "historical",
+        "confidence": 1.0,
+        "source_run_id": "space-race-import"
+      }
+    ],
+    "edges": [
+      {
+        "source": "1957/10/sputnik-1",
+        "target": "1969/07/moon-landing",
+        "type": "causal",
+        "weight": 0.85,
+        "theme": "space-race"
+      }
+    ]
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "ingested_nodes": 2,
+  "ingested_edges": 1
+}
+```
+
+## Deduplication Behavior
+
+<Note>
+  Nodes are deduplicated using the `tdf_hash` field, which is computed from canonical temporal-spatial-content fields.
+</Note>
+
+**How it works:**
+
+1. If you provide a `tdf_hash` in the request, it will be used as-is
+2. If omitted, the system computes the hash from these fields:
+   - Temporal: `year`, `month`, `day`, `time`
+   - Spatial: `country`, `region`, `city`
+   - Content: `slug`, `name`, `one_liner`
+
+3. Nodes with matching `id` and `tdf_hash` are considered duplicates and won't create new entries
+4. If the content changes (different hash), the node is updated
+
+**Edge deduplication:**
+- Edges are identified by `(source, target, type)` tuple
+- Duplicate edges are silently ignored
+- Invalid edge types are skipped (logged but don't fail the request)
+
+## Source Types and Confidence
+
+The `source_type` and `confidence` fields help track data provenance and quality:
+
+### Source Type
+
+Use `source_type` to categorize the origin of your data:
+
+```json
+{
+  "source_type": "historical",
+  "confidence": 1.0
+}
+```
+
+- **`historical`**: Verified historical facts from reliable sources
+- **`generated`**: AI-generated content (may require fact-checking)
+- **`user_input`**: User-submitted events
+- **`synthetic`**: Programmatically created for testing or simulation
+
+### Confidence Scoring
+
+The `confidence` field (0.0 to 1.0) indicates data reliability:
+
+- **1.0**: Fully verified, primary source
+- **0.8-0.9**: High confidence, secondary sources
+- **0.5-0.7**: Medium confidence, needs verification
+- **0.0-0.4**: Low confidence, speculative or uncertain
+
+<Note>
+  Use consistent confidence thresholds across your ingestion pipelines to enable quality filtering and analysis.
+</Note>
+
+## Edge Types
+
+Choose the appropriate edge type to represent the relationship between events:
+
+| Type | Description | Example |
+|------|-------------|----------|
+| `causal` | One event directly caused or enabled another | Sputnik → Moon Landing |
+| `thematic` | Events share a common theme or topic | Apollo 11 ↔ Apollo 13 |
+| `temporal` | Events occurred in close temporal proximity | D-Day → VE Day |
+| `spatial` | Events occurred in the same location | Multiple events in Berlin |
+
+## Error Handling
+
+<ResponseField name="400 Bad Request" type="error">
+  Invalid request structure or missing required fields.
+</ResponseField>
+
+<ResponseField name="401 Unauthorized" type="error">
+  Missing or invalid service key.
+</ResponseField>
+
+<ResponseField name="422 Unprocessable Entity" type="error">
+  Schema validation failed for nodes or edges.
+</ResponseField>
+
+**Edge-specific behavior:**
+- Invalid edge types are **skipped** (not an error)
+- Both source and target nodes must exist before creating an edge
+- If an edge references non-existent nodes, it's silently ignored
+
+## Best Practices
+
+### Batch Size
+- Optimal: 50-500 nodes with 100-1000 edges per request
+- Large subgraphs: Split into multiple requests grouped by temporal or thematic clusters
+
+### Node and Edge Ordering
+- Include all nodes before their edges (nodes are processed first anyway)
+- Edges referencing non-existent nodes will be skipped
+
+### Provenance Tracking
+- Use consistent `source_run_id` values for each import batch
+- Tag generated content with `confidence < 1.0`
+- Set appropriate `source_type` for downstream filtering
+
+### Idempotency
+- Safe to retry failed requests
+- Duplicate nodes/edges are automatically handled
+- Use the same `tdf_hash` values for consistent deduplication
+
+## Use Cases
+
+**Historical Event Chains**
+```json
+{
+  "nodes": [/* causally-linked events */],
+  "edges": [{"type": "causal", "weight": 0.9}]
+}
+```
+
+**Thematic Clusters**
+```json
+{
+  "nodes": [/* related events */],
+  "edges": [{"type": "thematic", "theme": "industrial-revolution"}]
+}
+```
+
+**Geographic Networks**
+```json
+{
+  "nodes": [/* events in same location */],
+  "edges": [{"type": "spatial", "weight": 1.0}]
+}
+```
+
+## Related Endpoints
+
+- [Ingest TDF Records](/api/ingestion/ingest-tdf) - Bulk import nodes without explicit edges
+- [Get Moment](/api/moments/get-moment) - Retrieve a node with its edges
+- [Graph Stats](/api/graph/stats) - View ingestion statistics by source type

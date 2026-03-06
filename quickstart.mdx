@@ -1,80 +1,369 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Get Timepoint Clockchain running in under 5 minutes'
 ---
 
-## Get started in three steps
+Timepoint Clockchain is a PostgreSQL-backed temporal causal graph for AI agents. This guide will help you set up a local development instance and make your first API call.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- **Python 3.11+** installed on your system
+- **PostgreSQL 16+** running locally or accessible via network
+- **Git** for cloning the repository
+- Basic familiarity with command-line tools
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The Clockchain uses asyncpg for PostgreSQL connectivity and requires the `pg_trgm` extension for full-text search (optional but recommended).
 </Note>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Clockchain repository to your local machine:
+    
+    ```bash
+    git clone https://github.com/timepoint-ai/timepoint-clockchain.git
+    cd timepoint-clockchain
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install the package and its dependencies using pip or uv:
+
+    <CodeGroup>
+    ```bash pip
+    pip install -e ".[dev]"
+    ```
+
+    ```bash uv
+    uv sync
+    ```
+    </CodeGroup>
+
+    This installs FastAPI, asyncpg, httpx, pydantic-settings, and the timepoint-tdf library.
+  </Step>
+
+  <Step title="Set up PostgreSQL">
+    Create a database for the Clockchain. The schema will be created automatically on first startup.
+
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    # Start PostgreSQL service
+    brew services start postgresql@16
+    
+    # Create the database
+    createdb clockchain
+    ```
+
+    ```bash Docker
+    # Run PostgreSQL in a container
+    docker run -d \
+      --name clockchain-db \
+      -p 5432:5432 \
+      -e POSTGRES_PASSWORD=clockchain_dev \
+      -e POSTGRES_DB=clockchain \
+      postgres:16
+    ```
+
+    ```bash Linux (apt)
+    # Install PostgreSQL
+    sudo apt install postgresql-16
+    
+    # Create database as postgres user
+    sudo -u postgres createdb clockchain
+    ```
+    </CodeGroup>
+
+    <Note>
+    The Clockchain automatically creates the `nodes` and `edges` tables with appropriate indexes on startup. You don't need to run any migration scripts.
+    </Note>
+  </Step>
+
+  <Step title="Configure environment">
+    Copy the example environment file and configure your settings:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` with your configuration:
+
+    ```bash .env
+    # Required: PostgreSQL connection
+    DATABASE_URL=postgresql://localhost:5432/clockchain
+
+    # Required: Service authentication key
+    SERVICE_API_KEY=your-secret-key-here
+
+    # Required: Flash service configuration (optional for local dev)
+    FLASH_URL=http://localhost:8081
+    FLASH_SERVICE_KEY=your-flash-key-here
+
+    # Optional: Enable debug logging
+    DEBUG=true
+    ENVIRONMENT=development
+
+    # Optional: Autonomous graph expansion (requires OpenRouter)
+    EXPANSION_ENABLED=false
+    OPENROUTER_API_KEY=your-openrouter-key
+
+    # Optional: Daily "Today in History" worker
+    DAILY_CRON_ENABLED=false
+    ```
+
+    <Warning>
+    The `SERVICE_API_KEY` is required for all protected API endpoints. Store it securely and never commit it to version control.
+    </Warning>
+  </Step>
+</Steps>
+
+## Running the Service
+
+Start the Clockchain service using uvicorn:
+
+```bash
+uvicorn app.main:app --port 8080 --reload
+```
+
+You should see output similar to:
+
+```
+INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)
+INFO:     clockchain:Clockchain starting up (env=development)
+INFO:     clockchain.db:Database pool created
+INFO:     clockchain.db:Database schema initialized
+INFO:     clockchain.db:Seeded 5 nodes and 3 edges
+INFO:     Application startup complete.
+```
+
+On startup, the service:
+
+1. Creates an asyncpg connection pool to PostgreSQL
+2. Runs schema DDL to create `nodes` and `edges` tables
+3. Seeds the database with 5 historical events from `data/seeds.json` (if empty)
+4. Starts the GraphManager and FastAPI server
+
+<Note>
+The initial seed data includes 5 historical moments: the Assassination of Julius Caesar (-44 BCE), the Trinity Test (1945), Apollo 11 Moon Landing (1969), Apollo 12 Lightning Launch (1969), and AlphaGo Move 37 (2016).
+</Note>
+
+## Making Your First API Call
+
+### Health Check
+
+Verify the service is running:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Response:
+
+```json
+{
+  "status": "healthy",
+  "service": "timepoint-clockchain",
+  "nodes": 5,
+  "edges": 3
+}
+```
+
+### Browse the Graph
+
+List available years in the graph:
+
+```bash
+curl -H "X-Service-Key: your-secret-key-here" \
+  http://localhost:8080/api/v1/browse
+```
+
+Response:
+
+```json
+{
+  "segments": [
+    {"segment": "-44", "type": "year", "count": 1},
+    {"segment": "1945", "type": "year", "count": 1},
+    {"segment": "1969", "type": "year", "count": 2},
+    {"segment": "2016", "type": "year", "count": 1}
+  ],
+  "moments": []
+}
+```
+
+### Get a Moment
+
+Retrieve a specific moment using its canonical URL path:
+
+```bash
+curl -H "X-Service-Key: your-secret-key-here" \
+  http://localhost:8080/api/v1/moments/1969/july/20/2056/united-states/florida/cape-canaveral/apollo-11-moon-landing
+```
+
+Response:
+
+```json
+{
+  "id": "/1969/july/20/2056/united-states/florida/cape-canaveral/apollo-11-moon-landing",
+  "name": "Apollo 11 Moon Landing",
+  "year": 1969,
+  "month": "july",
+  "day": 20,
+  "time": "2056",
+  "country": "united-states",
+  "region": "florida",
+  "city": "cape-canaveral",
+  "one_liner": "Neil Armstrong and Buzz Aldrin become the first humans to walk on the Moon",
+  "tags": ["space", "nasa", "apollo-program", "moon"],
+  "figures": ["Neil Armstrong", "Buzz Aldrin", "Michael Collins"],
+  "visibility": "public",
+  "layer": 1,
+  "edges": [
+    {
+      "source": "/1969/july/20/2056/united-states/florida/cape-canaveral/apollo-11-moon-landing",
+      "target": "/1969/november/14/1122/united-states/florida/cape-canaveral/apollo-12-lightning-launch",
+      "edge_type": "contemporaneous",
+      "weight": 0.9,
+      "theme": "apollo-program"
+    }
+  ]
+}
+```
+
+### Search the Graph
+
+Search for moments by name, tags, or figures:
+
+```bash
+curl -H "X-Service-Key: your-secret-key-here" \
+  "http://localhost:8080/api/v1/search?q=apollo"
+```
+
+Response:
+
+```json
+{
+  "results": [
+    {
+      "id": "/1969/july/20/2056/united-states/florida/cape-canaveral/apollo-11-moon-landing",
+      "name": "Apollo 11 Moon Landing",
+      "one_liner": "Neil Armstrong and Buzz Aldrin become the first humans to walk on the Moon",
+      "year": 1969,
+      "tags": ["space", "nasa", "apollo-program", "moon"]
+    },
+    {
+      "id": "/1969/november/14/1122/united-states/florida/cape-canaveral/apollo-12-lightning-launch",
+      "name": "Apollo 12 Lightning Launch",
+      "one_liner": "Apollo 12 launches into storm clouds and is struck by lightning twice",
+      "year": 1969,
+      "tags": ["space", "nasa", "apollo-program", "lightning"]
+    }
+  ]
+}
+```
+
+### Get Today's Moments
+
+Find all moments matching today's month and day:
+
+```bash
+curl -H "X-Service-Key: your-secret-key-here" \
+  http://localhost:8080/api/v1/today
+```
+
+<Note>
+This endpoint returns moments that match the current calendar date (month and day) from any year in history.
+</Note>
+
+## Understanding the Canonical URL Format
+
+Every moment in the Clockchain has a unique spatiotemporal URL with 8 segments:
+
+```
+/year/month/day/time/country/region/city/slug
+```
+
+For example:
+
+```
+/-44/march/15/1030/italy/lazio/rome/assassination-of-julius-caesar
+  │    │    │   │     │     │    │    └── event slug (auto-generated)
+  │    │    │   │     │     │    └─────── city
+  │    │    │   │     │     └──────────── region
+  │    │    │   │     └───────────────── country (modern borders)
+  │    │    │   └───────────────────────── time (24hr format, no colon)
+  │    │    └───────────────────────────── day (1-31)
+  │    └────────────────────────────────── month (lowercase name)
+  └─────────────────────────────────────── year (negative = BCE)
+```
+
+Key characteristics:
+
+- **Negative years** represent BCE dates (e.g., `-44` = 44 BCE)
+- **Month names** are lowercase (january, february, march, etc.)
+- **Time** is in 24-hour format without colons (0530 = 5:30 AM)
+- **All segments** use kebab-case (dashes instead of spaces)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the complete API documentation
+  </Card>
+  
+  <Card title="Graph Architecture" icon="diagram-project" href="/concepts/graph-architecture">
+    Understand the underlying graph data model
+  </Card>
+  
+  <Card title="TDF Integration" icon="exchange" href="/integration/tdf-format">
+    Export and ingest moments using the Timepoint Data Format
+  </Card>
+  
+  <Card title="Autonomous Expansion" icon="robot" href="/workers/expander">
+    Enable LLM-driven graph growth with the Expander worker
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Database Connection Errors
+
+If you see `connection refused` errors, ensure PostgreSQL is running:
+
+```bash
+# Check PostgreSQL status (macOS)
+brew services list
+
+# Check PostgreSQL status (Linux)
+sudo systemctl status postgresql
+
+# Check Docker container
+docker ps | grep clockchain-db
+```
+
+### Authentication Failures
+
+All protected endpoints require the `X-Service-Key` header. Verify your key matches the value in `.env`:
+
+```bash
+curl -H "X-Service-Key: your-secret-key-here" \
+  http://localhost:8080/api/v1/browse
+```
+
+### Empty Graph
+
+If the graph is empty after startup, check that:
+
+1. The `data/seeds.json` file exists in the repository root
+2. The database tables were created successfully (check logs for schema errors)
+3. The `DATABASE_URL` environment variable is set correctly
+
+You can manually verify the database state:
+
+```bash
+psql clockchain -c "SELECT count(*) FROM nodes;"
+psql clockchain -c "SELECT count(*) FROM edges;"
+```

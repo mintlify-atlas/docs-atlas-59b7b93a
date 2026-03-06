@@ -1,0 +1,149 @@
+---
+title: "Get Node Neighbors"
+api: "GET /graph/neighbors/{path}"
+description: "Retrieve all connected nodes (neighbors) for a specific node in the knowledge graph"
+---
+
+## Endpoint
+
+```
+GET /graph/neighbors/{path}
+```
+
+Returns all nodes connected to the specified node through edges, including edge metadata such as type, weight, and theme.
+
+## Authentication
+
+Requires service key authentication via `X-Service-Key` header.
+
+## Path Parameters
+
+<ParamField path="path" type="string" required>
+  The full path of the node (without leading slash). Example: `events/1945/world-war-ii-ends`
+</ParamField>
+
+## Response
+
+Returns an array of neighbor nodes with edge information.
+
+<ResponseField name="neighbors" type="array">
+  Array of connected nodes
+  
+  <Expandable title="neighbor object">
+    <ResponseField name="path" type="string">
+      The full path ID of the neighboring node
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Display name of the neighboring node
+    </ResponseField>
+    
+    <ResponseField name="edge_type" type="string">
+      Type of relationship. One of:
+      - `causes` - Causal relationship
+      - `contemporaneous` - Events occurring in similar timeframe (within 1 year)
+      - `same_location` - Events in the same location
+      - `thematic` - Events sharing common themes/tags
+    </ResponseField>
+    
+    <ResponseField name="weight" type="number">
+      Edge weight representing connection strength. Default values:
+      - `1.0` - causes (manual)
+      - `0.5` - contemporaneous, same_location
+      - `0.3` - thematic
+    </ResponseField>
+    
+    <ResponseField name="theme" type="string">
+      For `thematic` edges, contains comma-separated list of shared tags. Empty for other edge types.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Edge Types Explained
+
+<Expandable title="causes">
+  Manually curated causal relationships where one event led to another. These represent the strongest semantic connections in the graph.
+</Expandable>
+
+<Expandable title="contemporaneous">
+  Automatically generated edges connecting events that occurred within 1 year of each other. Useful for discovering parallel historical developments.
+</Expandable>
+
+<Expandable title="same_location">
+  Automatically generated edges connecting events in the same geographic location (matching country, region, and city). Helps discover location-based patterns.
+</Expandable>
+
+<Expandable title="thematic">
+  Automatically generated edges connecting events that share common tags. The `theme` field contains the specific overlapping tags.
+</Expandable>
+
+## Example Request
+
+```bash
+curl -X GET "https://api.timepointclockchain.com/graph/neighbors/events/1945/world-war-ii-ends" \
+  -H "X-Service-Key: your_service_key"
+```
+
+## Example Response
+
+```json
+[
+  {
+    "path": "/events/1945/atomic-bomb-hiroshima",
+    "name": "Atomic Bombing of Hiroshima",
+    "edge_type": "causes",
+    "weight": 1.0,
+    "theme": ""
+  },
+  {
+    "path": "/events/1945/yalta-conference",
+    "name": "Yalta Conference",
+    "edge_type": "contemporaneous",
+    "weight": 0.5,
+    "theme": ""
+  },
+  {
+    "path": "/events/1946/nuremberg-trials",
+    "name": "Nuremberg Trials Begin",
+    "edge_type": "contemporaneous",
+    "weight": 0.5,
+    "theme": ""
+  },
+  {
+    "path": "/events/1939/world-war-ii-begins",
+    "name": "World War II Begins",
+    "edge_type": "thematic",
+    "weight": 0.3,
+    "theme": "war, military, global-conflict"
+  }
+]
+```
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  Node not found
+  
+  ```json
+  {
+    "detail": "Node not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="401" type="error">
+  Missing or invalid service key
+  
+  ```json
+  {
+    "detail": "Unauthorized"
+  }
+  ```
+</ResponseField>
+
+## Notes
+
+- The response includes both incoming and outgoing edges
+- Edges are automatically generated based on temporal proximity, location, and thematic similarity
+- Manual `causes` edges must be explicitly created and represent curated relationships
+- An empty array is returned if the node has no neighbors

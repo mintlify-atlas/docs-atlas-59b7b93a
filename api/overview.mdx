@@ -1,0 +1,113 @@
+---
+title: 'API Overview'
+description: 'Complete overview of the Timepoint Clockchain API endpoints'
+---
+
+## Introduction
+
+The Timepoint Clockchain API provides access to historical moments, graph navigation, content generation, and data ingestion capabilities. All endpoints require authentication via service key.
+
+## Base URL
+
+```
+https://your-domain.com/api/v1
+```
+
+<Note>
+  The API version is `0.1.0` and all endpoints are prefixed with `/api/v1`.
+</Note>
+
+## Available Endpoints
+
+### Moments
+
+Retrieve and manage historical moment data.
+
+- **GET** `/moments/{path}` - Retrieve a specific moment by path
+- **GET** `/browse` - Browse the root level of moments
+- **GET** `/browse/{path}` - Browse moments at a specific path
+- **GET** `/today` - Get moments that occurred on today's date in history
+- **GET** `/random` - Retrieve a random public moment
+- **GET** `/search` - Search moments by query string
+
+### Graph
+
+Access the knowledge graph structure and relationships.
+
+- **GET** `/graph/neighbors/{path}` - Get neighboring nodes for a specific path
+- **GET** `/stats` - Retrieve graph statistics (node and edge counts)
+
+### Generation
+
+Generate new moments and manage jobs.
+
+- **POST** `/generate` - Generate a new moment from a query
+- **GET** `/jobs/{job_id}` - Check the status of a generation job
+- **POST** `/moments/{path}/publish` - Publish a moment (change visibility)
+- **POST** `/bulk-generate` - Generate multiple moments (requires admin key)
+- **POST** `/expand-once` - Manually trigger graph expansion (requires OpenRouter API key)
+- **POST** `/index` - Index a moment with metadata
+
+### Ingestion
+
+Import external data into the graph.
+
+- **POST** `/ingest/subgraph` - Ingest a complete subgraph (nodes and edges)
+- **POST** `/ingest/tdf` - Ingest TDF (Timepoint Data Format) records
+
+## Health & Status
+
+The API also provides public endpoints for service health:
+
+- **GET** `/` - Service information and version
+- **GET** `/health` - Health check with graph statistics
+
+<Note>
+  The `/` and `/health` endpoints do not require authentication.
+</Note>
+
+## Response Formats
+
+All endpoints return JSON responses. The API uses standard HTTP status codes:
+
+- `200` - Success
+- `400` - Bad request (invalid parameters)
+- `403` - Forbidden (invalid authentication)
+- `404` - Resource not found
+- `503` - Service unavailable (configuration issue)
+
+## Special Query Parameters
+
+### Format Parameter
+
+The `/moments/{path}` endpoint supports a `format` query parameter:
+
+```bash
+GET /api/v1/moments/1969/apollo-11?format=tdf
+```
+
+<ParamField query="format" type="string" default="default">
+  Response format: `default` or `tdf` (Timepoint Data Format)
+</ParamField>
+
+### Search Parameter
+
+The `/search` endpoint requires a query string:
+
+```bash
+GET /api/v1/search?q=apollo
+```
+
+<ParamField query="q" type="string" required>
+  Search query (minimum 1 character)
+</ParamField>
+
+## User Context
+
+Endpoints that support user-specific operations accept an optional `X-User-Id` header to filter or manage user-created content. See the [Authentication](/api/authentication) page for details.
+
+## Next Steps
+
+<Card title="Authentication" icon="key" href="/api/authentication" horizontal>
+  Learn how to authenticate your API requests
+</Card>

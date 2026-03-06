@@ -1,0 +1,306 @@
+---
+title: "Get Moment"
+description: "Retrieve a single moment by its full path"
+---
+
+## Endpoint
+
+```http
+GET /moments/{path}
+```
+
+Retrieve detailed information about a specific moment in the Clockchain graph, including all node attributes and connected edges.
+
+## Path Parameters
+
+<ParamField path="path" type="string" required>
+  The full path to the moment, e.g. `/1969/july/apollo-11-moon-landing`
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="format" type="string" default="default">
+  Response format. Options:
+  - `default` - Standard JSON response with full moment details and edges
+  - `tdf` - Export as Timepoint Data Format (TDF) for interoperability
+</ParamField>
+
+## Authentication
+
+Requires a valid service key via the `verify_service_key` dependency.
+
+## Response
+
+### Default Format
+
+<ResponseField name="path" type="string">
+  The unique path identifier for this moment
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  The display name of the moment
+</ResponseField>
+
+<ResponseField name="one_liner" type="string">
+  A brief description or summary
+</ResponseField>
+
+<ResponseField name="year" type="integer">
+  Year when the moment occurred
+</ResponseField>
+
+<ResponseField name="month" type="integer">
+  Month when the moment occurred (1-12)
+</ResponseField>
+
+<ResponseField name="day" type="integer">
+  Day of the month (1-31)
+</ResponseField>
+
+<ResponseField name="time" type="string">
+  Time of day, if applicable
+</ResponseField>
+
+<ResponseField name="country" type="string">
+  Country where the moment occurred
+</ResponseField>
+
+<ResponseField name="region" type="string">
+  Region or state
+</ResponseField>
+
+<ResponseField name="city" type="string">
+  City or locality
+</ResponseField>
+
+<ResponseField name="layer" type="integer">
+  Graph layer (importance/depth indicator)
+</ResponseField>
+
+<ResponseField name="visibility" type="string">
+  Visibility status: `public` or `private`
+</ResponseField>
+
+<ResponseField name="tags" type="array">
+  List of thematic tags
+</ResponseField>
+
+<ResponseField name="figures" type="array">
+  List of notable people associated with this moment
+</ResponseField>
+
+<ResponseField name="created_by" type="string">
+  User ID or system identifier that created this moment
+</ResponseField>
+
+<ResponseField name="source_type" type="string">
+  Source classification (e.g., `historical`, `generated`)
+</ResponseField>
+
+<ResponseField name="confidence" type="number" optional>
+  Confidence score for generated moments (0.0 to 1.0)
+</ResponseField>
+
+<ResponseField name="source_run_id" type="string" optional>
+  ID of the generation run that created this moment
+</ResponseField>
+
+<ResponseField name="tdf_hash" type="string">
+  TDF content hash for deduplication and integrity
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the moment was created
+</ResponseField>
+
+<ResponseField name="published_at" type="string">
+  ISO 8601 timestamp when the moment was published
+</ResponseField>
+
+<ResponseField name="edges" type="array">
+  List of edges connecting this moment to others
+  
+  <Expandable title="Edge Object">
+    <ResponseField name="source" type="string">
+      Source moment path
+    </ResponseField>
+    
+    <ResponseField name="target" type="string">
+      Target moment path
+    </ResponseField>
+    
+    <ResponseField name="edge_type" type="string">
+      Type of relationship: `causes`, `contemporaneous`, `same_location`, or `thematic`
+    </ResponseField>
+    
+    <ResponseField name="weight" type="number">
+      Edge weight (typically 0.0 to 1.0)
+    </ResponseField>
+    
+    <ResponseField name="theme" type="string">
+      Thematic description (for thematic edges)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### TDF Format
+
+When `format=tdf`, returns a Timepoint Data Format record:
+
+<ResponseField name="id" type="string">
+  Moment identifier (path)
+</ResponseField>
+
+<ResponseField name="source" type="string">
+  Always `clockchain`
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 creation timestamp
+</ResponseField>
+
+<ResponseField name="tdf_hash" type="string">
+  Content-based hash for deduplication
+</ResponseField>
+
+<ResponseField name="provenance" type="object">
+  Metadata about how this record was created
+  
+  <Expandable title="Provenance Object">
+    <ResponseField name="generator" type="string">
+      Generator identifier (e.g., `timepoint-clockchain`)
+    </ResponseField>
+    
+    <ResponseField name="confidence" type="number" optional>
+      Confidence score for generated content
+    </ResponseField>
+    
+    <ResponseField name="run_id" type="string" optional>
+      Generation run identifier
+    </ResponseField>
+    
+    <ResponseField name="flash_id" type="string" optional>
+      Flash timepoint ID if applicable
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="payload" type="object">
+  The actual moment data (name, year, month, day, tags, etc.)
+</ResponseField>
+
+## Examples
+
+### Get Moment (Default Format)
+
+```bash
+curl -X GET "https://api.timepoint.io/moments/1969/july/apollo-11-moon-landing" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "path": "/1969/july/apollo-11-moon-landing",
+  "name": "Apollo 11 Moon Landing",
+  "one_liner": "First humans land on the Moon",
+  "year": 1969,
+  "month": 7,
+  "day": 20,
+  "time": "20:17 UTC",
+  "country": "United States",
+  "region": "",
+  "city": "",
+  "layer": 3,
+  "visibility": "public",
+  "tags": ["space", "exploration", "NASA", "moon"],
+  "figures": ["Neil Armstrong", "Buzz Aldrin", "Michael Collins"],
+  "created_by": "system",
+  "source_type": "historical",
+  "confidence": null,
+  "source_run_id": null,
+  "tdf_hash": "a3f8b2c9...",
+  "created_at": "2024-01-15T10:30:00Z",
+  "published_at": "2024-01-15T10:30:00Z",
+  "edges": [
+    {
+      "source": "/1969/july/apollo-11-moon-landing",
+      "target": "/1961/may/kennedy-moon-speech",
+      "edge_type": "causes",
+      "weight": 0.9,
+      "theme": ""
+    },
+    {
+      "source": "/1969/july/apollo-11-moon-landing",
+      "target": "/1969/august/woodstock-festival",
+      "edge_type": "contemporaneous",
+      "weight": 0.5,
+      "theme": ""
+    }
+  ]
+}
+```
+
+### Get Moment (TDF Format)
+
+```bash
+curl -X GET "https://api.timepoint.io/moments/1969/july/apollo-11-moon-landing?format=tdf" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+{
+  "id": "/1969/july/apollo-11-moon-landing",
+  "source": "clockchain",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "tdf_hash": "a3f8b2c9...",
+  "provenance": {
+    "generator": "timepoint-clockchain",
+    "confidence": null,
+    "run_id": null,
+    "flash_id": null
+  },
+  "payload": {
+    "name": "Apollo 11 Moon Landing",
+    "year": 1969,
+    "month": "july",
+    "month_num": 7,
+    "day": 20,
+    "time": "20:17 UTC",
+    "tags": ["space", "exploration", "NASA", "moon"],
+    "figures": ["Neil Armstrong", "Buzz Aldrin", "Michael Collins"],
+    "one_liner": "First humans land on the Moon",
+    "layer": 3,
+    "visibility": "public"
+  }
+}
+```
+
+## Error Responses
+
+<ResponseField name="404" type="error">
+  Moment not found, or user lacks permission to view a private moment
+  
+  ```json
+  {
+    "detail": "Moment not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="403" type="error">
+  User is not authorized to view this private moment
+  
+  ```json
+  {
+    "detail": "Moment not found"
+  }
+  ```
+  
+  Note: Private moments return 404 instead of 403 to avoid leaking information about their existence.
+</ResponseField>
+
+## Visibility Rules
+
+- **Public moments**: Accessible to all authenticated users
+- **Private moments**: Only accessible to the user who created them (`created_by` must match `user_id`)
+- If a moment is private and the requester is not the creator, a 404 error is returned (not 403, to prevent enumeration)

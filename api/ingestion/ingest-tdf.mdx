@@ -1,0 +1,244 @@
+---
+title: "Ingest TDF Records"
+description: "Bulk import timepoint nodes using Temporal Data Format (TDF)"
+---
+
+## Overview
+
+The `/ingest/tdf` endpoint accepts a batch of TDF-compliant records and creates or updates nodes in the Clockchain graph. Each record is automatically deduplicated using a deterministic `tdf_hash` computed from canonical temporal-spatial fields.
+
+## Endpoint
+
+<ParamField path="POST" type="string">
+  `/api/v1/ingest/tdf`
+</ParamField>
+
+## Authentication
+
+Requires a valid service key passed via the `X-Service-Key` header.
+
+```bash
+curl -X POST https://api.timepoint.io/api/v1/ingest/tdf \
+  -H "X-Service-Key: your-service-key" \
+  -H "Content-Type: application/json"
+```
+
+## Request Body
+
+<ParamField body="records" type="array" required>
+  Array of TDF record objects. Each record represents a single timepoint node.
+</ParamField>
+
+### TDF Record Structure
+
+Each record in the array follows the Temporal Data Format specification:
+
+<Expandable title="TDF Record Fields">
+
+<ParamField body="id" type="string" required>
+  Unique identifier for the timepoint node (e.g., `"1969/07/moon-landing"`).
+</ParamField>
+
+<ParamField body="source" type="string" required>
+  Data source identifier. Use `"clockchain"` for standard ingestion.
+</ParamField>
+
+<ParamField body="timestamp" type="string" required>
+  ISO 8601 timestamp indicating when the record was created or last modified.
+</ParamField>
+
+<ParamField body="provenance" type="object" required>
+  Metadata about the record's origin and trustworthiness.
+  
+  <Expandable title="Provenance Fields">
+    <ParamField body="generator" type="string">
+      Name of the system or process that generated this record (default: `"timepoint-clockchain"`).
+    </ParamField>
+    
+    <ParamField body="confidence" type="number">
+      Confidence score between 0.0 and 1.0 indicating data quality or certainty.
+    </ParamField>
+    
+    <ParamField body="run_id" type="string">
+      Identifier for the ingestion batch or pipeline run.
+    </ParamField>
+    
+    <ParamField body="flash_id" type="string">
+      Reference to a Flash Timepoint ID if this record was derived from a flash event.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="payload" type="object" required>
+  The actual timepoint data containing temporal, spatial, and content fields.
+  
+  <Expandable title="Payload Fields">
+    <ParamField body="year" type="integer">
+      Year of the event (e.g., `1969`).
+    </ParamField>
+    
+    <ParamField body="month" type="string">
+      Month name (e.g., `"July"`).
+    </ParamField>
+    
+    <ParamField body="month_num" type="integer">
+      Month number 1-12 (e.g., `7`).
+    </ParamField>
+    
+    <ParamField body="day" type="integer">
+      Day of month (e.g., `20`).
+    </ParamField>
+    
+    <ParamField body="time" type="string">
+      Time of day in HH:MM format (e.g., `"20:17"`).
+    </ParamField>
+    
+    <ParamField body="country" type="string">
+      Country where the event occurred.
+    </ParamField>
+    
+    <ParamField body="region" type="string">
+      State, province, or region.
+    </ParamField>
+    
+    <ParamField body="city" type="string">
+      City or locality.
+    </ParamField>
+    
+    <ParamField body="slug" type="string">
+      URL-safe identifier (e.g., `"moon-landing"`).
+    </ParamField>
+    
+    <ParamField body="name" type="string">
+      Human-readable event name.
+    </ParamField>
+    
+    <ParamField body="one_liner" type="string">
+      Brief description or summary of the event.
+    </ParamField>
+    
+    <ParamField body="layer" type="integer">
+      Visibility layer (0=public, higher=restricted).
+    </ParamField>
+    
+    <ParamField body="visibility" type="string">
+      Visibility setting: `"public"` or `"private"`.
+    </ParamField>
+    
+    <ParamField body="tags" type="array">
+      Array of string tags for categorization.
+    </ParamField>
+    
+    <ParamField body="figures" type="array">
+      Array of notable people or entities associated with this event.
+    </ParamField>
+    
+    <ParamField body="source_type" type="string">
+      Type of source: `"historical"`, `"generated"`, `"user_input"`, etc.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+</Expandable>
+
+## Response
+
+<ResponseField name="ingested_nodes" type="integer">
+  Number of nodes successfully ingested.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.timepoint.io/api/v1/ingest/tdf \
+  -H "X-Service-Key: your-service-key" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "id": "1969/07/moon-landing",
+      "source": "clockchain",
+      "timestamp": "2024-03-15T10:30:00Z",
+      "provenance": {
+        "generator": "historical-import-v2",
+        "confidence": 0.98,
+        "run_id": "batch-2024-03-15"
+      },
+      "payload": {
+        "year": 1969,
+        "month": "July",
+        "month_num": 7,
+        "day": 20,
+        "time": "20:17",
+        "country": "United States",
+        "region": "Space",
+        "city": "Moon",
+        "slug": "moon-landing",
+        "name": "Apollo 11 Moon Landing",
+        "one_liner": "First humans land on the Moon",
+        "layer": 0,
+        "visibility": "public",
+        "tags": ["space", "nasa", "exploration"],
+        "figures": ["Neil Armstrong", "Buzz Aldrin"],
+        "source_type": "historical"
+      }
+    }
+  ]'
+```
+
+## Example Response
+
+```json
+{
+  "ingested_nodes": 1
+}
+```
+
+## Deduplication with `tdf_hash`
+
+<Note>
+  Each TDF record generates a deterministic SHA-256 hash from its canonical fields. This `tdf_hash` is used for content-addressable deduplication.
+</Note>
+
+The `tdf_hash` is computed from the following fields in the payload:
+
+- `year`, `month`, `day`, `time`
+- `country`, `region`, `city`
+- `slug`, `name`, `one_liner`
+
+The hash is stable across ingestions:
+- Missing or `null` values are normalized to empty strings
+- All values are lowercased and trimmed
+- Fields are sorted alphabetically before hashing
+
+**Behavior:**
+- If a node with the same `id` and `tdf_hash` already exists, it is **not** duplicated
+- If the `tdf_hash` differs (content changed), the node is updated
+- This enables idempotent bulk imports and change detection
+
+## Processing Flow
+
+1. **Validation**: Each record is validated against the TDFRecord schema
+2. **Transformation**: The `tdf_to_node_attrs()` function extracts node attributes
+3. **Hash Computation**: The `tdf_hash` is automatically computed from canonical fields
+4. **Ingestion**: The node is added or updated via `GraphManager.add_node()`
+5. **Response**: Returns the total count of processed nodes
+
+## Error Handling
+
+- **400 Bad Request**: Invalid TDF record structure or missing required fields
+- **401 Unauthorized**: Missing or invalid service key
+- **422 Unprocessable Entity**: TDF schema validation failed
+
+## Best Practices
+
+- **Batch Size**: Optimal batch size is 100-1000 records per request
+- **Idempotency**: Safe to retry failed batches—duplicates are handled automatically
+- **Confidence Scores**: Use `confidence` values to track data quality (0.0 = uncertain, 1.0 = verified)
+- **Run IDs**: Use consistent `run_id` values to track ingestion batches
+- **Source Types**: Tag records with `source_type` to distinguish historical facts from generated or user content
+
+## Related Endpoints
+
+- [Ingest Subgraph](/api/ingestion/ingest-subgraph) - Ingest nodes with explicit relationships
+- [Get Moment](/api/moments/get-moment) - Retrieve a single timepoint node
+- [Search](/api/moments/search) - Query ingested timepoints

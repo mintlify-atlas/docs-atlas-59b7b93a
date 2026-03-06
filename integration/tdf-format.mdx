@@ -1,0 +1,232 @@
+---
+title: 'TDF Format'
+description: 'Timepoint Data Format for cross-service interchange'
+---
+
+## Overview
+
+Timepoint Data Format (TDF) is the standardized interchange format used across all Timepoint AI services. Every Clockchain node can be exported as a TDF record, enabling seamless data exchange with Flash, Pro, SNAG Bench, and Proteus.
+
+<Note>
+TDF is designed for machine consumption with full temporal-spatial addressing, provenance tracking, and content-addressable deduplication.
+</Note>
+
+## TDF Record Structure
+
+A TDF record separates **payload** (event content) from **provenance** (metadata about how it was generated):
+
+```python
+class TDFRecord:
+    id: str                    # Canonical spatiotemporal URL
+    source: str                # Origin service (e.g., "clockchain")
+    timestamp: datetime        # When the record was created
+    provenance: TDFProvenance  # Generator metadata
+    payload: dict              # Event content
+    tdf_hash: str              # SHA-256 content fingerprint
+```
+
+### Provenance Fields
+
+Provenance tracks the origin and confidence of each record:
+
+```python
+class TDFProvenance:
+    generator: str        # Service that created this record
+    confidence: float     # Quality score (0.0-1.0)
+    run_id: str          # Simulation or generation batch ID
+    flash_id: str        # Reference to Flash scene (if applicable)
+```
+
+## Content-Addressable Hashing
+
+Each TDF record has a deterministic SHA-256 hash computed from canonical temporal-spatial-content fields:
+
+```python
+# From app/core/tdf.py
+TDF_FIELDS = (
+    "year", "month", "day", "time",
+    "country", "region", "city", "slug",
+    "name", "one_liner"
+)
+
+def compute_tdf_hash(attrs: dict) -> str:
+    """Return hex SHA-256 digest over canonical TDF fields."""
+    payload = {k: str(attrs.get(k) or "").lower().strip() 
+               for k in TDF_FIELDS}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+```
+
+The hash is stable regardless of which optional keys are present, enabling:
+
+- **Deduplication** — identical events from different sources produce the same hash
+- **Change detection** — any content modification changes the hash
+- **Data integrity** — verify records weren't corrupted in transit
+
+## Exporting Nodes as TDF
+
+Clockchain nodes can be exported as TDF records via the `/api/v1/moments/{path}?format=tdf` endpoint:
+
+```bash
+curl -H "X-Service-Key: your-key" \
+  https://clockchain.timepointai.com/api/v1/moments/-44/march/15/1030/italy/lazio/rome/assassination-of-julius-caesar?format=tdf
+```
+
+Response:
+
+```json
+{
+  "id": "/-44/march/15/1030/italy/lazio/rome/assassination-of-julius-caesar",
+  "source": "clockchain",
+  "timestamp": "2026-03-01T00:00:00Z",
+  "provenance": {
+    "generator": "timepoint-clockchain",
+    "confidence": 0.95,
+    "run_id": null,
+    "flash_id": "tp_abc123"
+  },
+  "payload": {
+    "name": "Assassination of Julius Caesar",
+    "year": -44,
+    "month": "march",
+    "day": 15,
+    "time": "1030",
+    "country": "italy",
+    "region": "lazio",
+    "city": "rome",
+    "slug": "assassination-of-julius-caesar",
+    "one_liner": "Julius Caesar was assassinated by a group of senators",
+    "tags": ["politics", "assassination"],
+    "figures": ["Julius Caesar", "Brutus"]
+  },
+  "tdf_hash": "a3f2c1..."
+}
+```
+
+### Export Implementation
+
+The TDF export path (app/core/tdf_bridge.py:66):
+
+```python
+def export_node_as_tdf(node_dict: dict) -> TDFRecord:
+    """Convert a DB node dict to TDF for API export."""
+    record = from_clockchain(node_dict)
+    
+    # Map clockchain-specific fields to provenance
+    if "source_run_id" in record.payload:
+        run_id = record.payload.pop("source_run_id")
+        if run_id:
+            record.provenance.run_id = run_id
+    
+    record.payload.pop("tdf_hash", None)
+    record.tdf_hash = record.compute_hash()
+    return record
+```
+
+## Ingesting TDF Records
+
+The `/api/v1/ingest/tdf` endpoint accepts TDF records from sibling services:
+
+```bash
+curl -X POST https://clockchain.timepointai.com/api/v1/ingest/tdf \
+  -H "X-Service-Key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "id": "/2045/june/12/1400/usa/california/san-francisco/ai-summit",
+    "source": "pro",
+    "timestamp": "2026-03-06T00:00:00Z",
+    "provenance": {
+      "generator": "timepoint-pro",
+      "confidence": 0.72,
+      "run_id": "sim_xyz789"
+    },
+    "payload": {
+      "name": "First Global AI Policy Summit",
+      "year": 2045,
+      "month": "june",
+      "day": 12,
+      "time": "1400",
+      "country": "usa",
+      "region": "california",
+      "city": "san-francisco",
+      "slug": "ai-summit",
+      "one_liner": "World leaders convene for AI governance framework",
+      "source_type": "simulation"
+    },
+    "tdf_hash": "b7d4e2..."
+  }]'
+```
+
+Response:
+
+```json
+{
+  "ingested_nodes": 1
+}
+```
+
+### Ingest Implementation
+
+The TDF ingest endpoint (app/api/ingest.py:60):
+
+```python
+@router.post("/ingest/tdf")
+async def ingest_tdf(
+    records: list[dict],
+    gm: GraphManager = Depends(get_graph_manager),
+):
+    node_count = 0
+    for raw in records:
+        record = TDFRecord(**raw)
+        node_id, attrs = tdf_to_node_attrs(record)
+        await gm.add_node(node_id, **attrs)
+        node_count += 1
+    return {"ingested_nodes": node_count}
+```
+
+The `tdf_to_node_attrs` helper (app/core/tdf_bridge.py:48) extracts the node ID and flattens the TDF record into Clockchain's internal format:
+
+```python
+def tdf_to_node_attrs(record: TDFRecord) -> tuple[str, dict]:
+    """Extract node_id and flat attrs from a TDFRecord."""
+    attrs = dict(record.payload)
+    
+    # Map provenance back to clockchain columns
+    if record.provenance.confidence is not None:
+        attrs["confidence"] = record.provenance.confidence
+    if record.provenance.run_id is not None:
+        attrs["source_run_id"] = record.provenance.run_id
+    if record.provenance.flash_id is not None:
+        attrs["flash_timepoint_id"] = record.provenance.flash_id
+    
+    attrs["tdf_hash"] = record.tdf_hash
+    attrs["created_at"] = record.timestamp.isoformat()
+    
+    return record.id, attrs
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Pro → Clockchain" icon="arrow-right">
+    Pro simulations output TDF records representing Rendered Futures, which are ingested into Clockchain's graph
+  </Card>
+  
+  <Card title="Flash → Clockchain" icon="arrow-right">
+    Flash scenes generate Rendered Past events that are indexed in Clockchain with full provenance
+  </Card>
+  
+  <Card title="Clockchain → SNAG Bench" icon="arrow-right">
+    SNAG Bench consumes TDF records to measure Causal Resolution across multiple renderings
+  </Card>
+  
+  <Card title="Clockchain → Proteus" icon="arrow-right">
+    Proteus markets settle against TDF-formatted predictions from the graph
+  </Card>
+</CardGroup>
+
+## Related
+
+- [Timepoint Suite Architecture](/integration/timepoint-suite)
+- [Subgraph Ingest Endpoint](/api/ingestion/ingest-subgraph)
+- [TDF Library (GitHub)](https://github.com/timepoint-ai/timepoint-tdf)

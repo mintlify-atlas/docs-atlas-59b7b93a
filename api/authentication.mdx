@@ -1,0 +1,183 @@
+---
+title: 'Authentication'
+description: 'How to authenticate with the Timepoint Clockchain API'
+---
+
+## Service Key Authentication
+
+All API endpoints (except `/` and `/health`) require authentication using a service key passed via the `X-Service-Key` header.
+
+### Required Header
+
+<ParamField header="X-Service-Key" type="string" required>
+  Your service API key for authenticating requests
+</ParamField>
+
+### Example Request
+
+```bash
+curl https://your-domain.com/api/v1/moments/1969/apollo-11 \
+  -H "X-Service-Key: your-service-key-here"
+```
+
+```python
+import requests
+
+headers = {
+    "X-Service-Key": "your-service-key-here"
+}
+
+response = requests.get(
+    "https://your-domain.com/api/v1/moments/1969/apollo-11",
+    headers=headers
+)
+```
+
+## How Authentication Works
+
+The API uses a secure constant-time comparison to verify service keys. Here's the authentication logic from the source code:
+
+```python
+async def verify_service_key(
+    x_service_key: str = Header(..., alias="X-Service-Key"),
+) -> str:
+    settings = get_settings()
+    if not settings.SERVICE_API_KEY:
+        raise HTTPException(status_code=503, detail="Service key not configured")
+    if not hmac.compare_digest(x_service_key, settings.SERVICE_API_KEY):
+        raise HTTPException(status_code=403, detail="Invalid service key")
+    return x_service_key
+```
+
+<Note>
+  The authentication uses `hmac.compare_digest()` to prevent timing attacks when comparing the service key.
+</Note>
+
+## User Identification
+
+For user-specific operations, you can optionally include a user ID in your requests.
+
+### Optional User Header
+
+<ParamField header="X-User-Id" type="string">
+  Optional user identifier for user-scoped operations
+</ParamField>
+
+### User ID Extraction
+
+The API extracts the user ID from the header as follows:
+
+```python
+async def get_user_id(
+    x_user_id: str | None = Header(None, alias="X-User-Id"),
+) -> str | None:
+    return x_user_id
+```
+
+### When to Use User ID
+
+Include the `X-User-Id` header when:
+
+- Accessing private moments created by a specific user
+- Generating new moments attributed to a user
+- Publishing moments on behalf of a user
+
+### Example with User ID
+
+```bash
+curl https://your-domain.com/api/v1/moments/my-custom-moment \
+  -H "X-Service-Key: your-service-key-here" \
+  -H "X-User-Id: user-123"
+```
+
+```python
+headers = {
+    "X-Service-Key": "your-service-key-here",
+    "X-User-Id": "user-123"
+}
+
+response = requests.get(
+    "https://your-domain.com/api/v1/moments/my-custom-moment",
+    headers=headers
+)
+```
+
+## Visibility and User Access
+
+Moments have a `visibility` property that controls access:
+
+- **public** - Accessible by anyone with a valid service key
+- **private** - Only accessible by the user who created it (requires matching `X-User-Id`)
+
+<Warning>
+  Private moments return a `404 Not Found` error if accessed without the correct `X-User-Id` header, even with a valid service key.
+</Warning>
+
+## Error Responses
+
+### Invalid Service Key
+
+```json
+{
+  "detail": "Invalid service key"
+}
+```
+
+**Status Code:** `403 Forbidden`
+
+### Service Key Not Configured
+
+```json
+{
+  "detail": "Service key not configured"
+}
+```
+
+**Status Code:** `503 Service Unavailable`
+
+<Note>
+  This error occurs when the server's `SERVICE_API_KEY` environment variable is not set.
+</Note>
+
+### Unauthorized Moment Access
+
+```json
+{
+  "detail": "Moment not found"
+}
+```
+
+**Status Code:** `404 Not Found`
+
+<Warning>
+  This response is returned both for truly non-existent moments and for private moments that you don't have access to, preventing information disclosure.
+</Warning>
+
+## Admin Authentication
+
+Some endpoints (like `/bulk-generate`) require an additional admin key:
+
+<ParamField header="X-Admin-Key" type="string">
+  Admin key for privileged operations
+</ParamField>
+
+Admin operations use a separate `ADMIN_KEY` configuration value and will return `403 Forbidden` if the key is invalid or missing.
+
+## Best Practices
+
+1. **Keep keys secure** - Never commit service keys to version control
+2. **Use environment variables** - Store keys in environment variables or secret management systems
+3. **Rotate keys regularly** - Update service keys periodically for security
+4. **Use HTTPS** - Always make requests over HTTPS to prevent key interception
+5. **Handle 403 errors** - Implement proper error handling for authentication failures
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Overview" icon="book" href="/api/overview">
+    Browse all available API endpoints
+  </Card>
+  <Card title="Moments API" icon="clock" href="/api/moments/get-moment">
+    Learn how to retrieve and search moments
+  </Card>
+</CardGroup>

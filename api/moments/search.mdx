@@ -1,0 +1,169 @@
+---
+title: "Search Moments"
+description: "Search for moments by keyword across name, description, tags, and figures"
+---
+
+## Endpoint
+
+```http
+GET /search
+```
+
+Search for public moments using keyword matching across multiple fields. Results are ranked by relevance.
+
+## Query Parameters
+
+<ParamField query="q" type="string" required>
+  Search query (minimum 1 character). Supports partial matching.
+</ParamField>
+
+## Authentication
+
+Requires a valid service key via the `verify_service_key` dependency.
+
+## Response
+
+Returns an array of `SearchResult` objects:
+
+<ResponseField name="path" type="string">
+  Unique path identifier for the moment
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the moment
+</ResponseField>
+
+<ResponseField name="one_liner" type="string">
+  Brief description or summary
+</ResponseField>
+
+<ResponseField name="score" type="number">
+  Relevance score:
+  - `1.0` - Match in the name field
+  - `0.7` - Match in the one_liner field
+  - `0.4` - Match in tags or figures fields
+</ResponseField>
+
+## Examples
+
+### Search by Keyword
+
+```bash
+curl -X GET "https://api.timepoint.io/search?q=moon" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+[
+  {
+    "path": "/1969/july/apollo-11-moon-landing",
+    "name": "Apollo 11 Moon Landing",
+    "one_liner": "First humans land on the Moon",
+    "score": 1.0
+  },
+  {
+    "path": "/1961/may/kennedy-moon-speech",
+    "name": "Kennedy Moon Speech",
+    "one_liner": "JFK commits to landing a man on the Moon",
+    "score": 1.0
+  },
+  {
+    "path": "/1972/december/apollo-17-mission",
+    "name": "Apollo 17 Mission",
+    "one_liner": "Last manned mission to the Moon",
+    "score": 0.7
+  }
+]
+```
+
+### Search by Person
+
+```bash
+curl -X GET "https://api.timepoint.io/search?q=armstrong" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+[
+  {
+    "path": "/1969/july/apollo-11-moon-landing",
+    "name": "Apollo 11 Moon Landing",
+    "one_liner": "First humans land on the Moon",
+    "score": 0.4
+  },
+  {
+    "path": "/1930/august/neil-armstrong-birth",
+    "name": "Birth of Neil Armstrong",
+    "one_liner": "American astronaut and first person on the Moon",
+    "score": 1.0
+  }
+]
+```
+
+### Search by Tag
+
+```bash
+curl -X GET "https://api.timepoint.io/search?q=space" \
+  -H "X-Service-Key: your_service_key"
+```
+
+```json
+[
+  {
+    "path": "/1969/july/apollo-11-moon-landing",
+    "name": "Apollo 11 Moon Landing",
+    "one_liner": "First humans land on the Moon",
+    "score": 0.4
+  },
+  {
+    "path": "/1957/october/sputnik-launch",
+    "name": "Sputnik 1 Launch",
+    "one_liner": "First artificial satellite launched into space",
+    "score": 0.7
+  },
+  {
+    "path": "/1981/april/first-space-shuttle",
+    "name": "First Space Shuttle Mission",
+    "one_liner": "Columbia's maiden voyage",
+    "score": 1.0
+  }
+]
+```
+
+## Search Algorithm
+
+The search performs case-insensitive partial matching across:
+
+1. **Name field** (score: 1.0) - Highest priority
+2. **One-liner field** (score: 0.7) - Medium priority
+3. **Tags array** (score: 0.4) - Lower priority
+4. **Figures array** (score: 0.4) - Lower priority
+
+Results are:
+- Sorted by score (descending) - most relevant first
+- Limited to **20 results** maximum
+- Filtered to **public moments only**
+
+## Behavior Notes
+
+- Query parameter `q` is **required** and must be at least 1 character
+- Search is **case-insensitive**
+- Uses SQL `ILIKE` for **partial matching** (e.g., `moon` matches `Apollo 11 Moon Landing`)
+- Only returns **public** moments (visibility = `public`)
+- Returns empty array `[]` if no matches found
+- Maximum of **20 results** returned per query
+
+## Use Cases
+
+- **Search bars**: Primary search functionality for your app
+- **Autocomplete**: Suggest moments as users type
+- **Entity search**: Find moments related to specific people, places, or topics
+- **Tag exploration**: Discover moments by thematic tags
+- **Quick lookup**: Find specific moments when you know part of the name
+
+## Performance Tips
+
+- For better performance on large datasets, consider implementing full-text search with PostgreSQL's `tsvector`
+- Add indexes on frequently searched fields (`name`, `one_liner`)
+- For multi-word queries, consider splitting and searching each term
+- Cache popular search queries to reduce database load

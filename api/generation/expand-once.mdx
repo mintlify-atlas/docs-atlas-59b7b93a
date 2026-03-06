@@ -1,0 +1,290 @@
+---
+title: "Expand Graph Once"
+api: "POST /api/expand-once"
+description: "Manually trigger one graph expansion cycle to discover and index related moments"
+---
+
+## Overview
+
+The `/expand-once` endpoint triggers a single iteration of the graph expansion algorithm. This algorithm:
+
+1. Selects candidate moments from the existing graph
+2. Uses AI to identify historically related events
+3. Generates and indexes new moment nodes
+4. Creates thematic edges between related moments
+5. Expands the temporal and thematic coverage of the graph
+
+<Note>
+  This endpoint is designed for manual testing and on-demand graph expansion. For continuous expansion, consider implementing a scheduled worker that calls this endpoint periodically.
+</Note>
+
+## Authentication
+
+Requires both:
+1. `SERVICE_API_KEY` header for authentication
+2. `OPENROUTER_API_KEY` environment variable must be configured
+
+```bash
+X-Service-Key: your-service-api-key
+```
+
+## Configuration Requirements
+
+<ParamField path="OPENROUTER_API_KEY" type="environment" required>
+  The OpenRouter API key must be set in your environment configuration. The expansion algorithm uses this to power AI-driven moment discovery.
+</ParamField>
+
+<ParamField path="OPENROUTER_MODEL" type="environment" optional>
+  Specify which model to use for expansion. Defaults to your configured model.
+  
+  Example: `anthropic/claude-3.5-sonnet`
+</ParamField>
+
+## Request
+
+No request body required. Simply POST to the endpoint.
+
+```bash
+curl -X POST https://api.clockchain.io/api/expand-once \
+  -H "X-Service-Key: your-service-api-key"
+```
+
+## Response
+
+<ResponseField name="before" type="object">
+  Graph statistics before expansion.
+  
+  - `nodes` (integer) - Total node count before expansion
+  - `edges` (integer) - Total edge count before expansion
+</ResponseField>
+
+<ResponseField name="after" type="object">
+  Graph statistics after expansion.
+  
+  - `nodes` (integer) - Total node count after expansion
+  - `edges` (integer) - Total edge count after expansion
+</ResponseField>
+
+<ResponseField name="added_nodes" type="integer">
+  Number of new moment nodes created during this expansion cycle.
+</ResponseField>
+
+<ResponseField name="added_edges" type="integer">
+  Number of new edges (relationships) created during this expansion cycle.
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.clockchain.io/api/expand-once \
+  -H "X-Service-Key: your-service-api-key"
+```
+
+## Example Response
+
+```json
+{
+  "before": {
+    "nodes": 1247,
+    "edges": 3892
+  },
+  "after": {
+    "nodes": 1253,
+    "edges": 3910
+  },
+  "added_nodes": 6,
+  "added_edges": 18
+}
+```
+
+## How Graph Expansion Works
+
+The expansion algorithm operates in several phases:
+
+### 1. Candidate Selection
+The expander selects existing moments that are good candidates for expansion:
+- High-layer (quality) moments
+- Moments with few existing connections
+- Events in underrepresented time periods or regions
+- Recently added moments that need context
+
+### 2. Related Event Discovery
+For each candidate, the AI model:
+- Analyzes the historical context
+- Identifies causally related events (causes and consequences)
+- Finds thematically similar moments
+- Discovers events involving the same figures or locations
+
+### 3. Moment Generation
+New moments are generated via the Flash Timepoint API:
+- Full moment data with verified dates and locations
+- Character/figure extraction
+- Historical context and grounding
+- Tags and categorization
+
+### 4. Edge Creation
+The expander creates edges between:
+- Seed moments and newly discovered moments
+- Newly discovered moments that are related to each other
+- Existing graph nodes that connect to new moments
+
+Edge types include:
+- `causal` - Cause and effect relationships
+- `thematic` - Shared themes or topics
+- `temporal` - Sequential events in a series
+- `spatial` - Events in the same location
+- `figural` - Involving the same historical figures
+
+### 5. Graph Integration
+New nodes and edges are indexed into the graph:
+- Paths are computed following Clockchain conventions
+- Metadata is normalized and validated
+- Duplicate detection prevents re-adding existing moments
+- Layer assignments reflect data quality
+
+## Expansion Metrics
+
+<Note>
+  **Typical Results**: A single expansion cycle usually adds:
+  - 3-10 new moment nodes
+  - 10-30 new edges
+  - Processing time: 30-90 seconds
+  
+  Results vary based on graph size, seed moment selection, and AI model responsiveness.
+</Note>
+
+## Use Cases
+
+### Manual Graph Growth
+
+```bash
+# Trigger expansion after adding seed moments
+curl -X POST https://api.clockchain.io/api/expand-once \
+  -H "X-Service-Key: your-service-api-key"
+
+# Check results
+echo "Added nodes: $(jq '.added_nodes' response.json)"
+```
+
+### Testing Expansion Algorithm
+
+```bash
+# Run multiple cycles to test expansion quality
+for i in {1..5}; do
+  echo "Expansion cycle $i"
+  curl -X POST https://api.clockchain.io/api/expand-once \
+    -H "X-Service-Key: your-service-api-key"
+  sleep 60
+done
+```
+
+### Scheduled Expansion Worker
+
+```python
+import requests
+import time
+
+API_URL = "https://api.clockchain.io/api/expand-once"
+HEADERS = {"X-Service-Key": "your-service-api-key"}
+
+while True:
+    response = requests.post(API_URL, headers=HEADERS)
+    data = response.json()
+    
+    print(f"Expansion complete: +{data['added_nodes']} nodes, +{data['added_edges']} edges")
+    
+    # Wait 5 minutes before next expansion
+    time.sleep(300)
+```
+
+### On-Demand Expansion After Import
+
+```bash
+# Import seed moments
+curl -X POST https://api.clockchain.io/api/bulk-generate \
+  -H "Content-Type: application/json" \
+  -H "X-Service-Key: your-key" \
+  -H "X-Admin-Key: your-admin-key" \
+  -d '{"queries": [...]}}'
+
+# Wait for generation to complete
+sleep 30
+
+# Expand graph to discover related moments
+curl -X POST https://api.clockchain.io/api/expand-once \
+  -H "X-Service-Key: your-service-api-key"
+```
+
+## Performance Considerations
+
+### Processing Time
+- Single expansion cycle: 30-90 seconds
+- Depends on number of candidates selected
+- Flash API latency is the primary bottleneck
+- Parallel processing may be added in future versions
+
+### Resource Usage
+- Consumes OpenRouter API credits for expansion logic
+- Consumes Flash API credits for moment generation
+- Database writes for new nodes and edges
+- Memory usage scales with graph size
+
+<Warning>
+  **Rate Limiting**: Rapid successive calls to `/expand-once` may hit Flash API or OpenRouter rate limits. Implement delays between expansion cycles (recommended: 60-300 seconds).
+</Warning>
+
+## Best Practices
+
+1. **Start Small**: Begin with 50-100 high-quality seed moments before expanding
+2. **Monitor Growth**: Track `added_nodes` and `added_edges` to ensure healthy expansion
+3. **Review Quality**: Periodically review newly added moments for accuracy
+4. **Control Costs**: Set budgets for API usage and monitor expansion frequency
+5. **Balance Coverage**: Ensure expansion doesn't over-focus on specific periods or regions
+
+## Expansion vs. Generation
+
+| Feature | `/expand-once` | `/generate` |
+|---------|----------------|-------------|
+| Input | Existing graph | User query |
+| Output | Multiple related moments | Single moment |
+| Discovery | AI-driven exploration | User-specified |
+| Edges | Automatically created | Manual linking needed |
+| Use case | Graph growth | Specific event addition |
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 503 | OPENROUTER_API_KEY not configured |
+| 401 | Missing or invalid SERVICE_API_KEY |
+| 500 | Expansion algorithm error |
+| 429 | Rate limit exceeded (OpenRouter or Flash API) |
+
+## Monitoring Expansion Health
+
+Track these metrics over multiple expansion cycles:
+
+- **Growth rate**: Nodes/edges added per cycle
+- **Density**: Edges per node ratio (healthy: 2-4)
+- **Coverage**: Distribution across time periods and regions
+- **Quality**: Layer distribution of new nodes
+- **Cost**: API credits consumed per cycle
+
+<Note>
+  If expansion cycles consistently add 0 nodes, your graph may need more high-quality seed moments or the expander may need tuning. Check logs for selection and generation errors.
+</Note>
+
+## Future Enhancements
+
+- Expansion targeting (focus on specific eras/regions)
+- Batch expansion (multiple cycles in one request)
+- Expansion strategies (breadth-first vs. depth-first)
+- Quality thresholds for candidate selection
+- Parallel moment generation
+
+## Related Endpoints
+
+- [Generate](/api/generation/generate) - Create specific moments
+- [Index](/api/generation/index) - Manually add moments
+- [Bulk Generate](/api/generation/bulk-generate) - Batch moment creation
+- `/api/stats` - View current graph statistics
